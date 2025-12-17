@@ -11,9 +11,12 @@ export async function GET(
   const { id } = await context.params
   const supabase = await createServerSupabaseAdmin()
 
+  let doc: any = null
+  let lines: any[] | null = null
+
   try {
     // Fetch document with full location details including GSTIN, address, contact
-    const { data: doc, error: docError } = await supabase
+    const { data: docData, error: docError } = await supabase
       .from('docs')
       .select(
         `
@@ -25,12 +28,14 @@ export async function GET(
       .eq('id', id)
       .single()
 
+    doc = docData
+
     if (docError || !doc) {
       return NextResponse.json({ error: 'Document not found' }, { status: 404 })
     }
 
     // Fetch lines with HSN and unit_cost from challan_lines
-    const { data: lines } = await supabase
+    const { data: linesData } = await supabase
       .from('doc_lines')
       .select(`
         *,
@@ -38,6 +43,8 @@ export async function GET(
       `)
       .eq('doc_id', id)
       .order('material_code')
+
+    lines = linesData
 
     // Flatten nested objects for React PDF (can't handle nested objects)
     const flatDoc = {

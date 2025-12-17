@@ -65,9 +65,25 @@ export async function GET(
       },
     })
   } catch (error) {
-    console.error('PDF generation error:', error)
+    // Log detailed error information
+    console.error('=== PDF GENERATION ERROR ===')
+    console.error('Error:', error)
+    console.error('Error message:', error instanceof Error ? error.message : String(error))
+    console.error('Error stack:', error instanceof Error ? error.stack : 'No stack trace')
+    console.error('Document data:', JSON.stringify(doc, null, 2))
+    console.error('Lines count:', lines?.length || 0)
+    if (lines && lines.length > 0) {
+      console.error('First line sample:', JSON.stringify(lines[0], null, 2))
+    }
+    console.error('===========================')
+
     return NextResponse.json(
-      { error: 'Failed to generate PDF', details: error instanceof Error ? error.message : 'Unknown error' },
+      {
+        error: 'Failed to generate PDF',
+        details: error instanceof Error ? error.message : 'Unknown error',
+        stack: error instanceof Error ? error.stack : undefined,
+        docId: id
+      },
       { status: 500 }
     )
   }

@@ -288,10 +288,8 @@ interface ChallanLine {
   qty: number
   ticket_code?: string
   company_delivery_no?: string
-  challan_line?: {
-    hsn_code?: string
-    unit_cost?: number
-  }
+  hsn_code: string
+  unit_cost: number
 }
 
 interface DocumentData {
@@ -322,13 +320,22 @@ interface DeliveryChallanPDFProps {
 }
 
 export default function DeliveryChallanPDF({ doc, lines }: DeliveryChallanPDFProps) {
+  // Safety helper: convert any value to a safe string/number for React-PDF
+  const safeText = (value: unknown): string => {
+    if (value == null) return ''
+    if (typeof value === 'string') return value
+    if (typeof value === 'number') return String(value)
+    // If it's an object, stringify it (should never happen with proper flattening)
+    return JSON.stringify(value)
+  }
+
   // Calculate totals
   let totalQty = 0
   let totalAmount = 0
 
   const lineData = lines.map((line, index) => {
     const qty = Number(line.qty) || 0
-    const rate = Number(line.challan_line?.unit_cost) || 0
+    const rate = Number(line.unit_cost) || 0
     const amount = qty * rate
     totalQty += qty
     totalAmount += amount
@@ -336,7 +343,7 @@ export default function DeliveryChallanPDF({ doc, lines }: DeliveryChallanPDFPro
     return {
       ...line,
       sr: index + 1,
-      hsn: line.challan_line?.hsn_code || '',
+      hsn: String(line.hsn_code || ''),
       rate,
       amount,
     }
@@ -367,7 +374,7 @@ export default function DeliveryChallanPDF({ doc, lines }: DeliveryChallanPDFPro
           {/* Arsh Traders Horizontal Logo */}
           <Image
             src={ARSH_LOGO_PATH}
-            style={{ width: 180, height: 50, objectFit: 'contain' }}
+            style={{ width: 180, height: 50 }}
           />
         </View>
         <View style={styles.headerStripe} />
@@ -383,16 +390,16 @@ export default function DeliveryChallanPDF({ doc, lines }: DeliveryChallanPDFPro
           <View style={styles.challanInfoRow}>
             <View style={styles.challanInfoItem}>
               <Text style={styles.challanLabel}>Challan No:</Text>
-              <Text style={styles.challanValue}>{doc.doc_no}</Text>
+              <Text style={styles.challanValue}>{safeText(doc.doc_no)}</Text>
             </View>
             <View style={styles.challanInfoItem}>
               <Text style={styles.challanLabel}>Date:</Text>
-              <Text style={styles.challanValue}>{formatDate(doc.doc_date)}</Text>
+              <Text style={styles.challanValue}>{safeText(formatDate(doc.doc_date))}</Text>
             </View>
             {ksiChallanNos && (
               <View style={styles.challanInfoItem}>
                 <Text style={styles.challanLabel}>Ref (KSI):</Text>
-                <Text style={styles.challanValue}>{ksiChallanNos}</Text>
+                <Text style={styles.challanValue}>{safeText(ksiChallanNos)}</Text>
               </View>
             )}
           </View>
@@ -403,9 +410,9 @@ export default function DeliveryChallanPDF({ doc, lines }: DeliveryChallanPDFPro
             <View style={styles.detailsColumn}>
               <View style={styles.detailsBox}>
                 <Text style={styles.detailsLabel}>Ship From (Consignor)</Text>
-                <Text style={styles.detailsValue}>{doc.source_location.name}</Text>
+                <Text style={styles.detailsValue}>{safeText(doc.source_location?.name)}</Text>
                 {/* Use fixed details for Arsh Traders, otherwise use stored details */}
-                {doc.source_location.name === 'Arsh Traders' ? (
+                {doc.source_location?.name === 'Arsh Traders' ? (
                   <>
                     <Text style={styles.detailsSubValue}>{ARSH_TRADERS_ADDRESS}</Text>
                     <Text style={styles.detailsSubValue}>GSTIN: {ARSH_TRADERS_GSTIN}</Text>
@@ -413,14 +420,14 @@ export default function DeliveryChallanPDF({ doc, lines }: DeliveryChallanPDFPro
                   </>
                 ) : (
                   <>
-                    {doc.source_location.address && (
-                      <Text style={styles.detailsSubValue}>{doc.source_location.address}</Text>
+                    {doc.source_location?.address && (
+                      <Text style={styles.detailsSubValue}>{safeText(doc.source_location.address)}</Text>
                     )}
-                    {doc.source_location.gstin && (
-                      <Text style={styles.detailsSubValue}>GSTIN: {doc.source_location.gstin}</Text>
+                    {doc.source_location?.gstin && (
+                      <Text style={styles.detailsSubValue}>GSTIN: {safeText(doc.source_location.gstin)}</Text>
                     )}
-                    {doc.source_location.contact && (
-                      <Text style={styles.detailsSubValue}>Contact: {doc.source_location.contact}</Text>
+                    {doc.source_location?.contact && (
+                      <Text style={styles.detailsSubValue}>Contact: {safeText(doc.source_location.contact)}</Text>
                     )}
                   </>
                 )}
@@ -431,15 +438,15 @@ export default function DeliveryChallanPDF({ doc, lines }: DeliveryChallanPDFPro
             <View style={styles.detailsColumn}>
               <View style={styles.detailsBox}>
                 <Text style={styles.detailsLabel}>Ship To (Consignee)</Text>
-                <Text style={styles.detailsValue}>{doc.dest_location.name}</Text>
-                {doc.dest_location.address && (
-                  <Text style={styles.detailsSubValue}>{doc.dest_location.address}</Text>
+                <Text style={styles.detailsValue}>{safeText(doc.dest_location?.name)}</Text>
+                {doc.dest_location?.address && (
+                  <Text style={styles.detailsSubValue}>{safeText(doc.dest_location.address)}</Text>
                 )}
-                {doc.dest_location.gstin && (
-                  <Text style={styles.detailsSubValue}>GSTIN: {doc.dest_location.gstin}</Text>
+                {doc.dest_location?.gstin && (
+                  <Text style={styles.detailsSubValue}>GSTIN: {safeText(doc.dest_location.gstin)}</Text>
                 )}
-                {doc.dest_location.contact && (
-                  <Text style={styles.detailsSubValue}>Contact: {doc.dest_location.contact}</Text>
+                {doc.dest_location?.contact && (
+                  <Text style={styles.detailsSubValue}>Contact: {safeText(doc.dest_location.contact)}</Text>
                 )}
               </View>
             </View>
@@ -461,13 +468,13 @@ export default function DeliveryChallanPDF({ doc, lines }: DeliveryChallanPDFPro
             {/* Table Rows */}
             {lineData.slice(0, MAX_ROWS_PER_PAGE).map((line, idx) => (
               <View key={line.id} style={[styles.tableRow, idx % 2 === 1 ? styles.tableRowAlt : {}]} wrap={false}>
-                <Text style={[styles.tableCell, styles.colSr]}>{line.sr}</Text>
-                <Text style={[styles.tableCellBold, styles.colMaterial, { fontSize: 7 }]}>{line.material_code}</Text>
-                <Text style={[styles.tableCell, styles.colDesc]}>{line.material_description}</Text>
-                <Text style={[styles.tableCell, styles.colHsn]}>{line.hsn}</Text>
-                <Text style={[styles.tableCellBold, styles.colQty]}>{line.qty}</Text>
-                <Text style={[styles.tableCell, styles.colRate]}>{line.rate > 0 ? formatIndianCurrency(line.rate) : '-'}</Text>
-                <Text style={[styles.tableCellBold, styles.colAmount, { fontSize: 10 }]}>{line.amount > 0 ? formatIndianCurrency(line.amount) : '-'}</Text>
+                <Text style={[styles.tableCell, styles.colSr]}>{safeText(line.sr)}</Text>
+                <Text style={[styles.tableCellBold, styles.colMaterial, { fontSize: 7 }]}>{safeText(line.material_code)}</Text>
+                <Text style={[styles.tableCell, styles.colDesc]}>{safeText(line.material_description)}</Text>
+                <Text style={[styles.tableCell, styles.colHsn]}>{safeText(line.hsn)}</Text>
+                <Text style={[styles.tableCellBold, styles.colQty]}>{safeText(line.qty)}</Text>
+                <Text style={[styles.tableCell, styles.colRate]}>{line.rate > 0 ? safeText(formatIndianCurrency(line.rate)) : '-'}</Text>
+                <Text style={[styles.tableCellBold, styles.colAmount, { fontSize: 10 }]}>{line.amount > 0 ? safeText(formatIndianCurrency(line.amount)) : '-'}</Text>
               </View>
             ))}
 
@@ -477,9 +484,9 @@ export default function DeliveryChallanPDF({ doc, lines }: DeliveryChallanPDFPro
               <Text style={[styles.tableCellBold, styles.colMaterial]}></Text>
               <Text style={[styles.tableCellBold, styles.colDesc, { textAlign: 'right' }]}>TOTAL</Text>
               <Text style={[styles.tableCellBold, styles.colHsn]}></Text>
-              <Text style={[styles.tableCellBold, styles.colQty, { fontSize: 10 }]}>{totalQty}</Text>
+              <Text style={[styles.tableCellBold, styles.colQty, { fontSize: 10 }]}>{safeText(totalQty)}</Text>
               <Text style={[styles.tableCellBold, styles.colRate]}></Text>
-              <Text style={[styles.tableCellBold, styles.colAmount, { fontSize: 11 }]}>{totalAmount > 0 ? formatIndianCurrency(totalAmount) : '-'}</Text>
+              <Text style={[styles.tableCellBold, styles.colAmount, { fontSize: 11 }]}>{totalAmount > 0 ? safeText(formatIndianCurrency(totalAmount)) : '-'}</Text>
             </View>
           </View>
 
@@ -487,17 +494,17 @@ export default function DeliveryChallanPDF({ doc, lines }: DeliveryChallanPDFPro
           <View style={styles.totalsSection}>
             <View style={styles.totalRow}>
               <Text style={styles.totalLabel}>Total Quantity:</Text>
-              <Text style={styles.totalValue}>{totalQty}</Text>
+              <Text style={styles.totalValue}>{safeText(totalQty)}</Text>
             </View>
             {totalAmount > 0 && (
               <>
                 <View style={styles.totalRow}>
                   <Text style={styles.totalLabel}>Sub Total:</Text>
-                  <Text style={styles.totalValue}>{formatIndianCurrency(totalAmount)}</Text>
+                  <Text style={styles.totalValue}>{safeText(formatIndianCurrency(totalAmount))}</Text>
                 </View>
                 <View style={styles.grandTotalRow}>
                   <Text style={styles.grandTotalLabel}>Grand Total:</Text>
-                  <Text style={styles.grandTotalValue}>₹ {formatIndianCurrency(totalAmount)}</Text>
+                  <Text style={styles.grandTotalValue}>₹ {safeText(formatIndianCurrency(totalAmount))}</Text>
                 </View>
               </>
             )}
@@ -507,7 +514,7 @@ export default function DeliveryChallanPDF({ doc, lines }: DeliveryChallanPDFPro
           {totalAmount > 0 && (
             <View style={styles.amountInWords}>
               <Text style={styles.amountInWordsLabel}>Amount in Words</Text>
-              <Text style={styles.amountInWordsText}>{numberToWords(totalAmount)}</Text>
+              <Text style={styles.amountInWordsText}>{safeText(numberToWords(totalAmount))}</Text>
             </View>
           )}
 
@@ -528,7 +535,7 @@ export default function DeliveryChallanPDF({ doc, lines }: DeliveryChallanPDFPro
         <View style={styles.footer}>
           <View style={styles.footerContent}>
             <Text style={styles.footerText}>
-              <Text style={styles.footerHighlight}>Email:</Text> {ARSH_TRADERS_EMAIL} | <Text style={styles.footerHighlight}>Website:</Text> {ARSH_TRADERS_WEBSITE}
+              Email: {ARSH_TRADERS_EMAIL} | Website: {ARSH_TRADERS_WEBSITE}
             </Text>
             <Text style={styles.footerText}>
               {ARSH_TRADERS_ADDRESS}
@@ -544,14 +551,14 @@ export default function DeliveryChallanPDF({ doc, lines }: DeliveryChallanPDFPro
             {/* Arsh Traders Horizontal Logo */}
             <Image
               src={ARSH_LOGO_PATH}
-              style={{ width: 180, height: 50, objectFit: 'contain' }}
+              style={{ width: 180, height: 50 }}
             />
           </View>
           <View style={styles.headerStripe} />
 
           <View style={styles.content}>
             <Text style={{ fontSize: 10, marginBottom: 10, color: '#64748b' }}>
-              Continued from previous page - Challan No: {doc.doc_no}
+              Continued from previous page - Challan No: {safeText(doc.doc_no)}
             </Text>
 
             <View style={styles.table}>
@@ -567,13 +574,13 @@ export default function DeliveryChallanPDF({ doc, lines }: DeliveryChallanPDFPro
 
               {lineData.slice(MAX_ROWS_PER_PAGE).map((line, idx) => (
                 <View key={line.id} style={[styles.tableRow, idx % 2 === 1 ? styles.tableRowAlt : {}]} wrap={false}>
-                  <Text style={[styles.tableCell, styles.colSr]}>{line.sr}</Text>
-                  <Text style={[styles.tableCellBold, styles.colMaterial, { fontSize: 7 }]}>{line.material_code}</Text>
-                  <Text style={[styles.tableCell, styles.colDesc]}>{line.material_description}</Text>
-                  <Text style={[styles.tableCell, styles.colHsn]}>{line.hsn}</Text>
-                  <Text style={[styles.tableCellBold, styles.colQty]}>{line.qty}</Text>
-                  <Text style={[styles.tableCell, styles.colRate]}>{line.rate > 0 ? formatIndianCurrency(line.rate) : '-'}</Text>
-                  <Text style={[styles.tableCellBold, styles.colAmount, { fontSize: 10 }]}>{line.amount > 0 ? formatIndianCurrency(line.amount) : '-'}</Text>
+                  <Text style={[styles.tableCell, styles.colSr]}>{safeText(line.sr)}</Text>
+                  <Text style={[styles.tableCellBold, styles.colMaterial, { fontSize: 7 }]}>{safeText(line.material_code)}</Text>
+                  <Text style={[styles.tableCell, styles.colDesc]}>{safeText(line.material_description)}</Text>
+                  <Text style={[styles.tableCell, styles.colHsn]}>{safeText(line.hsn)}</Text>
+                  <Text style={[styles.tableCellBold, styles.colQty]}>{safeText(line.qty)}</Text>
+                  <Text style={[styles.tableCell, styles.colRate]}>{line.rate > 0 ? safeText(formatIndianCurrency(line.rate)) : '-'}</Text>
+                  <Text style={[styles.tableCellBold, styles.colAmount, { fontSize: 10 }]}>{line.amount > 0 ? safeText(formatIndianCurrency(line.amount)) : '-'}</Text>
                 </View>
               ))}
             </View>
@@ -582,7 +589,7 @@ export default function DeliveryChallanPDF({ doc, lines }: DeliveryChallanPDFPro
           <View style={styles.footer}>
             <View style={styles.footerContent}>
               <Text style={styles.footerText}>
-                <Text style={styles.footerHighlight}>Email:</Text> {ARSH_TRADERS_EMAIL} | <Text style={styles.footerHighlight}>Website:</Text> {ARSH_TRADERS_WEBSITE}
+                Email: {ARSH_TRADERS_EMAIL} | Website: {ARSH_TRADERS_WEBSITE}
               </Text>
               <Text style={styles.footerText}>
                 {ARSH_TRADERS_ADDRESS}

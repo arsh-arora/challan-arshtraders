@@ -55,10 +55,11 @@ export async function GET(
     delete flatDoc.source
     delete flatDoc.destination
 
-    const flatLines = (lines || []).map(line => ({
-      ...line,
-      hsn_code: line.challan_line?.hsn_code,
-      unit_cost: line.challan_line?.unit_cost,
+    // Properly flatten lines - extract hsn_code and unit_cost, remove the nested challan_line object
+    const flatLines = (lines || []).map(({ challan_line, ...rest }) => ({
+      ...rest,
+      hsn_code: String(challan_line?.hsn_code || ''),
+      unit_cost: Number(challan_line?.unit_cost || 0),
     }))
 
     // Generate PDF using the new professional DeliveryChallanPDF

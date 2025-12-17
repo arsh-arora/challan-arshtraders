@@ -77,7 +77,7 @@ export async function GET(
       const logoBytes = await readFile(logoPath)
       logoImage = await pdfDoc.embedPng(logoBytes)
       // Scale so it sits cleanly inside the top bar (no clipping)
-      logoDims = logoImage.scale(0.18)
+      logoDims = logoImage.scale(0.01)
     } catch {
       // If logo missing, we just skip drawing it (PDF still generates)
     }

@@ -403,9 +403,9 @@ export default function DeliveryChallanPDF({ doc, lines }: DeliveryChallanPDFPro
             <View style={styles.detailsColumn}>
               <View style={styles.detailsBox}>
                 <Text style={styles.detailsLabel}>Ship From (Consignor)</Text>
-                <Text style={styles.detailsValue}>{doc.source.name}</Text>
+                <Text style={styles.detailsValue}>{doc.source_location.name}</Text>
                 {/* Use fixed details for Arsh Traders, otherwise use stored details */}
-                {doc.source.name === 'Arsh Traders' ? (
+                {doc.source_location.name === 'Arsh Traders' ? (
                   <>
                     <Text style={styles.detailsSubValue}>{ARSH_TRADERS_ADDRESS}</Text>
                     <Text style={styles.detailsSubValue}>GSTIN: {ARSH_TRADERS_GSTIN}</Text>
@@ -413,14 +413,14 @@ export default function DeliveryChallanPDF({ doc, lines }: DeliveryChallanPDFPro
                   </>
                 ) : (
                   <>
-                    {doc.source.address && (
-                      <Text style={styles.detailsSubValue}>{doc.source.address}</Text>
+                    {doc.source_location.address && (
+                      <Text style={styles.detailsSubValue}>{doc.source_location.address}</Text>
                     )}
-                    {doc.source.gstin && (
-                      <Text style={styles.detailsSubValue}>GSTIN: {doc.source.gstin}</Text>
+                    {doc.source_location.gstin && (
+                      <Text style={styles.detailsSubValue}>GSTIN: {doc.source_location.gstin}</Text>
                     )}
-                    {doc.source.contact && (
-                      <Text style={styles.detailsSubValue}>Contact: {doc.source.contact}</Text>
+                    {doc.source_location.contact && (
+                      <Text style={styles.detailsSubValue}>Contact: {doc.source_location.contact}</Text>
                     )}
                   </>
                 )}
@@ -431,15 +431,15 @@ export default function DeliveryChallanPDF({ doc, lines }: DeliveryChallanPDFPro
             <View style={styles.detailsColumn}>
               <View style={styles.detailsBox}>
                 <Text style={styles.detailsLabel}>Ship To (Consignee)</Text>
-                <Text style={styles.detailsValue}>{doc.destination.name}</Text>
-                {doc.destination.address && (
-                  <Text style={styles.detailsSubValue}>{doc.destination.address}</Text>
+                <Text style={styles.detailsValue}>{doc.dest_location.name}</Text>
+                {doc.dest_location.address && (
+                  <Text style={styles.detailsSubValue}>{doc.dest_location.address}</Text>
                 )}
-                {doc.destination.gstin && (
-                  <Text style={styles.detailsSubValue}>GSTIN: {doc.destination.gstin}</Text>
+                {doc.dest_location.gstin && (
+                  <Text style={styles.detailsSubValue}>GSTIN: {doc.dest_location.gstin}</Text>
                 )}
-                {doc.destination.contact && (
-                  <Text style={styles.detailsSubValue}>Contact: {doc.destination.contact}</Text>
+                {doc.dest_location.contact && (
+                  <Text style={styles.detailsSubValue}>Contact: {doc.dest_location.contact}</Text>
                 )}
               </View>
             </View>

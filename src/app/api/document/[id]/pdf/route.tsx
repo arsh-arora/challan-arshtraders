@@ -39,8 +39,23 @@ export async function GET(
       .eq('doc_id', id)
       .order('material_code')
 
+    // Flatten nested objects for React PDF (can't handle nested objects)
+    const flatDoc = {
+      ...doc,
+      source_location: doc.source,
+      dest_location: doc.destination,
+    }
+    delete flatDoc.source
+    delete flatDoc.destination
+
+    const flatLines = (lines || []).map(line => ({
+      ...line,
+      hsn_code: line.challan_line?.hsn_code,
+      unit_cost: line.challan_line?.unit_cost,
+    }))
+
     // Generate PDF using the new professional DeliveryChallanPDF
-    const pdfElement = React.createElement(DeliveryChallanPDF, { doc, lines: lines || [] })
+    const pdfElement = React.createElement(DeliveryChallanPDF, { doc: flatDoc, lines: flatLines })
     const buffer = await renderToBuffer(pdfElement as unknown as ReactElement<DocumentProps>)
 
     return new NextResponse(new Uint8Array(buffer), {

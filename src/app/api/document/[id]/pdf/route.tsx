@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { createServerSupabaseAdmin } from '@/lib/supabase/server'
-import { PDFDocument, rgb, StandardFonts } from 'pdf-lib'
+import { PDFDocument, rgb, StandardFonts, PDFFont, PDFPage } from 'pdf-lib'
 import { numberToWords, formatIndianCurrency } from '@/lib/numberToWords'
 import { readFile } from 'fs/promises'
 import { join } from 'path'
@@ -39,242 +39,370 @@ export async function GET(
     // Fetch lines
     const { data: lines } = await supabase
       .from('doc_lines')
-      .select(`
+      .select(
+        `
         *,
         challan_line:company_challan_lines(hsn_code, unit_cost)
-      `)
+      `
+      )
       .eq('doc_id', id)
       .order('material_code')
 
+    const items = lines || []
+
     // Create PDF
     const pdfDoc = await PDFDocument.create()
-    const page = pdfDoc.addPage([595, 842]) // A4 size
+    const page = pdfDoc.addPage([595, 842]) // A4
     const font = await pdfDoc.embedFont(StandardFonts.Helvetica)
     const fontBold = await pdfDoc.embedFont(StandardFonts.HelveticaBold)
     const fontItalic = await pdfDoc.embedFont(StandardFonts.HelveticaOblique)
 
-    // Load and embed logo
+    // Colors tuned to match the “new system”
+    const COLORS = {
+      navy: rgb(0.09, 0.22, 0.37),
+      slate: rgb(0.42, 0.49, 0.57),
+      text: rgb(0.08, 0.1, 0.12),
+      lightBox: rgb(0.96, 0.97, 0.99),
+      rowAlt: rgb(0.98, 0.985, 0.995),
+      line: rgb(0.86, 0.89, 0.93),
+      white: rgb(1, 1, 1),
+    }
+
+    // Load logo (white logo recommended for dark header bar)
+    // Keep this filename if that’s what you have in /public
     const logoPath = join(process.cwd(), 'public', 'arsh-logo-horizontal.png')
-    const logoBytes = await readFile(logoPath)
-    const logoImage = await pdfDoc.embedPng(logoBytes)
-    const logoDims = logoImage.scale(0.25) // Scale to appropriate size
+    let logoImage: any = null
+    let logoDims: { width: number; height: number } | null = null
+    try {
+      const logoBytes = await readFile(logoPath)
+      logoImage = await pdfDoc.embedPng(logoBytes)
+      // Scale so it sits cleanly inside the top bar (no clipping)
+      logoDims = logoImage.scale(0.18)
+    } catch {
+      // If logo missing, we just skip drawing it (PDF still generates)
+    }
 
     const { width, height } = page.getSize()
-    const navy = rgb(0.12, 0.23, 0.37)
-    const gray = rgb(0.47, 0.55, 0.64)
-    const lightGray = rgb(0.97, 0.98, 0.99)
-    const black = rgb(0, 0, 0)
-    const white = rgb(1, 1, 1)
+    const M = 40
+    const CONTENT_W = width - 2 * M
 
-    let y = height
+    // ---------- HEADER BAR ----------
+    const headerH = 70
+    drawRect(page, 0, height - headerH, width, headerH, COLORS.navy)
 
-    // Header - Navy background
-    page.drawRectangle({ x: 0, y: y - 80, width, height: 80, color: navy })
+    if (logoImage && logoDims) {
+      const padX = M
+      const yLogo = height - headerH + (headerH - logoDims.height) / 2
+      page.drawImage(logoImage, {
+        x: padX,
+        y: yLogo,
+        width: logoDims.width,
+        height: logoDims.height,
+      })
+    }
 
-    // Draw Arsh Traders logo
-    page.drawImage(logoImage, {
-      x: 70,
-      y: y - 70,
-      width: logoDims.width,
-      height: logoDims.height,
+    // ---------- TITLE ----------
+    let y = height - headerH - 28
+
+    drawTextCenter(page, 'DELIVERY CHALLAN', width / 2, y, {
+      font: fontBold,
+      size: 18,
+      color: COLORS.navy,
+    })
+    y -= 16
+    drawTextCenter(page, 'Goods Movement - Returnable Basis', width / 2, y, {
+      font,
+      size: 9.5,
+      color: COLORS.slate,
+    })
+    y -= 22
+
+    // ---------- INFO ROW (with “pills”) ----------
+    const ksiChallanNos = [...new Set(items.map(l => l.company_delivery_no).filter(Boolean))].join(', ')
+    const infoRowY = y
+
+    drawLabelValuePill(page, {
+      label: 'Challan No:',
+      value: String(doc.doc_no || ''),
+      x: M,
+      y: infoRowY,
+      maxPillW: 170,
+      font,
+      fontBold,
+      colors: COLORS,
     })
 
-    y -= 100
-
-    // Navy stripe
-    page.drawRectangle({ x: 0, y: y - 4, width, height: 4, color: navy })
-    y -= 35
-
-    // Title
-    page.drawText('DELIVERY CHALLAN', { x: width / 2 - 95, y, size: 20, font: fontBold, color: navy })
-    y -= 18
-    page.drawText('Goods Movement - Returnable Basis', { x: width / 2 - 95, y, size: 10, font, color: gray })
-    y -= 30
-
-    // Document info row (Challan No, Date, Ref)
-    const ksiChallanNos = [...new Set((lines || []).map(l => l.company_delivery_no).filter(Boolean))].join(', ')
-
-    page.drawText('Challan No:', { x: 40, y, size: 10, font, color: gray })
-    page.drawText(doc.doc_no, { x: 105, y, size: 10, font: fontBold, color: black })
-
-    page.drawText('Date:', { x: 280, y, size: 10, font, color: gray })
-    page.drawText(formatDate(doc.doc_date), { x: 315, y, size: 10, font: fontBold, color: black })
+    drawLabelValuePill(page, {
+      label: 'Date:',
+      value: formatDate(doc.doc_date),
+      x: M + 230,
+      y: infoRowY,
+      maxPillW: 110,
+      font,
+      fontBold,
+      colors: COLORS,
+    })
 
     if (ksiChallanNos) {
-      page.drawText('Ref (KSI):', { x: 450, y, size: 10, font, color: gray })
-      page.drawText(ksiChallanNos, { x: 505, y, size: 10, font: fontBold, color: black })
+      drawLabelValuePill(page, {
+        label: 'Ref (KSI):',
+        value: ksiChallanNos,
+        x: M + 380,
+        y: infoRowY,
+        maxPillW: 150,
+        font,
+        fontBold,
+        colors: COLORS,
+      })
     }
 
-    y -= 30
+    y -= 28
 
-    // Consignor/Consignee boxes
-    const boxWidth = 250
-    const boxHeight = 85
-    const boxX1 = 40
-    const boxX2 = 305
+    // ---------- SHIP FROM / SHIP TO CARDS ----------
+    const cardGap = 15
+    const cardW = (CONTENT_W - cardGap) / 2
+    const cardH = 92
 
-    // Consignor box (left)
-    page.drawRectangle({ x: boxX1, y: y - boxHeight, width: boxWidth, height: boxHeight, color: lightGray })
-    page.drawRectangle({ x: boxX1, y: y - boxHeight, width: 3, height: boxHeight, color: navy })
+    drawCard(page, {
+      x: M,
+      y: y - cardH,
+      w: cardW,
+      h: cardH,
+      title: 'SHIP FROM (CONSIGNOR)',
+      name: doc.source?.name || 'N/A',
+      lines:
+        (doc.source?.name || '') === 'Arsh Traders'
+          ? [
+              ARSH_TRADERS_ADDRESS,
+              `GSTIN: ${ARSH_TRADERS_GSTIN}`,
+              `Email: ${ARSH_TRADERS_EMAIL}`,
+            ]
+          : compactLines([
+              doc.source?.address ? doc.source.address : '',
+              doc.source?.gstin ? `GSTIN: ${doc.source.gstin}` : '',
+              doc.source?.contact ? `Contact: ${doc.source.contact}` : '',
+            ]),
+      font,
+      fontBold,
+      colors: COLORS,
+    })
 
-    page.drawText('SHIP FROM (CONSIGNOR)', { x: boxX1 + 10, y: y - 15, size: 9, font, color: gray })
-    page.drawText(doc.source?.name || 'N/A', { x: boxX1 + 10, y: y - 30, size: 11, font: fontBold, color: black })
+    drawCard(page, {
+      x: M + cardW + cardGap,
+      y: y - cardH,
+      w: cardW,
+      h: cardH,
+      title: 'SHIP TO (CONSIGNEE)',
+      name: doc.destination?.name || 'N/A',
+      lines: compactLines([
+        doc.destination?.address ? doc.destination.address : '',
+        doc.destination?.gstin ? `GSTIN: ${doc.destination.gstin}` : '',
+        doc.destination?.contact ? `Contact: ${doc.destination.contact}` : '',
+      ]),
+      font,
+      fontBold,
+      colors: COLORS,
+    })
 
-    let consignorY = y - 43
-    if (doc.source?.name === 'Arsh Traders') {
-      page.drawText(ARSH_TRADERS_ADDRESS, { x: boxX1 + 10, y: consignorY, size: 8, font, color: black })
-      consignorY -= 11
-      page.drawText(`GSTIN: ${ARSH_TRADERS_GSTIN}`, { x: boxX1 + 10, y: consignorY, size: 8, font, color: black })
-      consignorY -= 11
-      page.drawText(`Email: ${ARSH_TRADERS_EMAIL}`, { x: boxX1 + 10, y: consignorY, size: 8, font, color: black })
-    } else {
-      if (doc.source?.address) {
-        page.drawText(doc.source.address.substring(0, 45), { x: boxX1 + 10, y: consignorY, size: 8, font, color: black })
-        consignorY -= 11
-      }
-      if (doc.source?.gstin) {
-        page.drawText(`GSTIN: ${doc.source.gstin}`, { x: boxX1 + 10, y: consignorY, size: 8, font, color: black })
-        consignorY -= 11
-      }
-      if (doc.source?.contact) {
-        page.drawText(`Contact: ${doc.source.contact}`, { x: boxX1 + 10, y: consignorY, size: 8, font, color: black })
-      }
+    y -= cardH + 18
+
+    // ---------- ITEMS TABLE ----------
+    const tableX = M
+    const tableW = CONTENT_W
+
+    // Column widths sum to tableW
+    const COL = {
+      sr: 30,
+      code: 85,
+      desc: 190,
+      hsn: 70,
+      qty: 40,
+      rate: 55,
+      amt: 55,
+    }
+    const X = {
+      sr: tableX,
+      code: tableX + COL.sr,
+      desc: tableX + COL.sr + COL.code,
+      hsn: tableX + COL.sr + COL.code + COL.desc,
+      qty: tableX + COL.sr + COL.code + COL.desc + COL.hsn,
+      rate: tableX + COL.sr + COL.code + COL.desc + COL.hsn + COL.qty,
+      amt: tableX + COL.sr + COL.code + COL.desc + COL.hsn + COL.qty + COL.rate,
+      right: tableX + tableW,
     }
 
-    // Consignee box (right)
-    page.drawRectangle({ x: boxX2, y: y - boxHeight, width: boxWidth, height: boxHeight, color: lightGray })
-    page.drawRectangle({ x: boxX2, y: y - boxHeight, width: 3, height: boxHeight, color: navy })
+    const th = 22
+    drawRect(page, tableX, y - th, tableW, th, COLORS.navy)
 
-    page.drawText('SHIP TO (CONSIGNEE)', { x: boxX2 + 10, y: y - 15, size: 9, font, color: gray })
-    page.drawText(doc.destination?.name || 'N/A', { x: boxX2 + 10, y: y - 30, size: 11, font: fontBold, color: black })
+    const headerY = y - 15
+    drawText(page, 'SR.', X.sr + 8, headerY, { font: fontBold, size: 8.5, color: COLORS.white })
+    drawText(page, 'MATERIAL CODE', X.code + 8, headerY, { font: fontBold, size: 8.5, color: COLORS.white })
+    drawText(page, 'DESCRIPTION', X.desc + 8, headerY, { font: fontBold, size: 8.5, color: COLORS.white })
+    drawText(page, 'HSN', X.hsn + 8, headerY, { font: fontBold, size: 8.5, color: COLORS.white })
+    drawText(page, 'QTY', X.qty + 10, headerY, { font: fontBold, size: 8.5, color: COLORS.white })
+    drawText(page, 'RATE (1)', X.rate + 8, headerY, { font: fontBold, size: 8.5, color: COLORS.white })
+    drawText(page, 'AMOUNT (1)', X.amt + 6, headerY, { font: fontBold, size: 8.5, color: COLORS.white })
 
-    let consigneeY = y - 43
-    if (doc.destination?.address) {
-      page.drawText(doc.destination.address.substring(0, 45), { x: boxX2 + 10, y: consigneeY, size: 8, font, color: black })
-      consigneeY -= 11
-    }
-    if (doc.destination?.gstin) {
-      page.drawText(`GSTIN: ${doc.destination.gstin}`, { x: boxX2 + 10, y: consigneeY, size: 8, font, color: black })
-      consigneeY -= 11
-    }
-    if (doc.destination?.contact) {
-      page.drawText(`Contact: ${doc.destination.contact}`, { x: boxX2 + 10, y: consigneeY, size: 8, font, color: black })
-    }
+    y -= th
 
-    y -= boxHeight + 25
-
-    // Table Header
-    const tableTop = y
-    const colX = [40, 70, 145, 320, 385, 430, 500]
-
-    page.drawRectangle({ x: 40, y: tableTop - 20, width: width - 80, height: 20, color: navy })
-
-    page.drawText('SR.', { x: colX[0] + 5, y: tableTop - 13, size: 8, font: fontBold, color: white })
-    page.drawText('MATERIAL CODE', { x: colX[1] + 5, y: tableTop - 13, size: 8, font: fontBold, color: white })
-    page.drawText('DESCRIPTION', { x: colX[2] + 5, y: tableTop - 13, size: 8, font: fontBold, color: white })
-    page.drawText('HSN', { x: colX[3] + 5, y: tableTop - 13, size: 8, font: fontBold, color: white })
-    page.drawText('QTY', { x: colX[4] + 8, y: tableTop - 13, size: 8, font: fontBold, color: white })
-    page.drawText('RATE (Rs.)', { x: colX[5] + 2, y: tableTop - 13, size: 8, font: fontBold, color: white })
-    page.drawText('AMOUNT (Rs.)', { x: colX[6] + 2, y: tableTop - 13, size: 8, font: fontBold, color: white })
-
-    y = tableTop - 23
-
-    // Table Rows
     let totalQty = 0
     let totalAmount = 0
 
-    for (let idx = 0; idx < (lines || []).length; idx++) {
-      const line = lines![idx]
-      const qty = Number(line.qty) || 0
-      const rate = Number(line.challan_line?.unit_cost) || 0
-      const amount = qty * rate
-      const hsn = String(line.challan_line?.hsn_code || '')
+    const rowPadY = 6
+    const baseRowH = 22
 
-      totalQty += qty
-      totalAmount += amount
+    if (items.length === 0) {
+      const emptyH = 34
+      drawRect(page, tableX, y - emptyH, tableW, emptyH, COLORS.rowAlt)
+      drawText(page, 'No items', tableX + 10, y - 22, { font, size: 9, color: COLORS.slate })
+      y -= emptyH
+    } else {
+      for (let i = 0; i < items.length; i++) {
+        const line = items[i]
+        const qty = Number(line.qty) || 0
+        const rate = Number(line.challan_line?.unit_cost) || 0
+        const amount = qty * rate
+        const hsn = String(line.challan_line?.hsn_code || '')
 
-      // Alternating row background
-      if (idx % 2 === 1) {
-        page.drawRectangle({ x: 40, y: y - 18, width: width - 80, height: 18, color: lightGray })
+        totalQty += qty
+        totalAmount += amount
+
+        // Wrap description to max 2 lines like the “new system”
+        const descLines = wrapText(String(line.material_description || ''), font, 9, COL.desc - 16, 2)
+        const rowH = Math.max(baseRowH, rowPadY * 2 + descLines.length * 10)
+
+        // Row background (very subtle)
+        if (i % 2 === 1) drawRect(page, tableX, y - rowH, tableW, rowH, COLORS.rowAlt)
+
+        // Bottom grid line
+        drawLine(page, tableX, y - rowH, tableX + tableW, y - rowH, 0.75, COLORS.line)
+
+        // Text positions
+        const ty = y - rowPadY - 10
+
+        drawText(page, String(i + 1), X.sr + 10, ty, { font, size: 9, color: COLORS.text })
+        drawText(page, String(line.material_code || ''), X.code + 8, ty, {
+          font: fontBold,
+          size: 9,
+          color: COLORS.text,
+        })
+
+        for (let li = 0; li < descLines.length; li++) {
+          drawText(page, descLines[li], X.desc + 8, ty - li * 10, {
+            font,
+            size: 9,
+            color: COLORS.text,
+          })
+        }
+
+        drawText(page, hsn, X.hsn + 8, ty, { font, size: 9, color: COLORS.text })
+
+        drawTextRight(page, String(qty), X.qty + COL.qty - 8, ty, { font: fontBold, size: 9, color: COLORS.text })
+        drawTextRight(
+          page,
+          rate > 0 ? formatIndianCurrency(rate) : '-',
+          X.rate + COL.rate - 8,
+          ty,
+          { font, size: 9, color: COLORS.text }
+        )
+        drawTextRight(
+          page,
+          amount > 0 ? formatIndianCurrency(amount) : '-',
+          X.amt + COL.amt - 8,
+          ty,
+          { font: fontBold, size: 9, color: COLORS.text }
+        )
+
+        y -= rowH
       }
-
-      y -= 13
-
-      page.drawText(String(idx + 1), { x: colX[0] + 8, y, size: 8, font, color: black })
-      page.drawText(truncate(String(line.material_code || ''), 12), { x: colX[1] + 5, y, size: 7, font: fontBold, color: black })
-      page.drawText(truncate(String(line.material_description || ''), 30), { x: colX[2] + 5, y, size: 8, font, color: black })
-      page.drawText(hsn, { x: colX[3] + 5, y, size: 8, font, color: black })
-      page.drawText(String(qty), { x: colX[4] + 12, y, size: 8, font: fontBold, color: black })
-      page.drawText(rate > 0 ? formatIndianCurrency(rate) : '-', { x: colX[5] + 5, y, size: 8, font, color: black })
-      page.drawText(amount > 0 ? formatIndianCurrency(amount) : '-', { x: colX[6] + 5, y, size: 8, font: fontBold, color: black })
-
-      y -= 5
     }
 
-    // Total row
-    y -= 5
-    page.drawRectangle({ x: 40, y: y - 20, width: width - 80, height: 2, color: navy })
-    y -= 15
+    // TOTAL row (like new system)
+    const totalRowH = 26
+    drawLine(page, tableX, y, tableX + tableW, y, 2, COLORS.navy)
+    drawRect(page, tableX, y - totalRowH, tableW, totalRowH, COLORS.lightBox)
 
-    page.drawText('TOTAL', { x: colX[3] + 5, y, size: 10, font: fontBold, color: black })
-    page.drawText(String(totalQty), { x: colX[4] + 12, y, size: 10, font: fontBold, color: black })
-    page.drawText(formatIndianCurrency(totalAmount), { x: colX[6] + 5, y, size: 10, font: fontBold, color: black })
+    drawTextCenter(page, 'TOTAL', tableX + tableW / 2, y - 18, {
+      font: fontBold,
+      size: 10,
+      color: COLORS.text,
+    })
+    drawTextRight(page, String(totalQty), X.qty + COL.qty - 8, y - 18, {
+      font: fontBold,
+      size: 10,
+      color: COLORS.text,
+    })
+    drawTextRight(page, formatIndianCurrency(totalAmount), X.amt + COL.amt - 8, y - 18, {
+      font: fontBold,
+      size: 10,
+      color: COLORS.text,
+    })
 
-    y -= 35
+    y -= totalRowH + 18
 
-    // Totals section (right-aligned)
-    page.drawText('Total Quantity:', { x: 435, y, size: 10, font, color: black })
-    page.drawText(String(totalQty), { x: 535, y, size: 10, font: fontBold, color: black })
-    y -= 18
+    // Divider line under table (matches new system)
+    drawLine(page, tableX, y, tableX + tableW, y, 2, COLORS.navy)
+    y -= 22
 
-    page.drawText('Sub Total:', { x: 435, y, size: 10, font, color: black })
-    page.drawText(formatIndianCurrency(totalAmount), { x: 490, y, size: 10, font: fontBold, color: black })
-    y -= 5
+    // ---------- TOTALS BLOCK (right aligned) ----------
+    const totalsX = tableX + tableW - 170
+    const totalsRight = tableX + tableW
 
-    // Grand Total with line
-    page.drawRectangle({ x: 430, y: y - 2, width: 125, height: 2, color: navy })
+    drawText(page, 'Total Quantity:', totalsX, y, { font, size: 9.5, color: COLORS.slate })
+    drawTextRight(page, String(totalQty), totalsRight, y, { font: fontBold, size: 9.5, color: COLORS.text })
+    y -= 16
+
+    drawText(page, 'Sub Total:', totalsX, y, { font, size: 9.5, color: COLORS.slate })
+    drawTextRight(page, formatIndianCurrency(totalAmount), totalsRight, y, {
+      font: fontBold,
+      size: 9.5,
+      color: COLORS.text,
+    })
+    y -= 10
+
+    // line above grand total
+    drawLine(page, totalsX, y, totalsRight, y, 2, COLORS.navy)
     y -= 20
 
-    page.drawText('Grand Total:', { x: 435, y, size: 11, font: fontBold, color: navy })
-    page.drawText('Rs. ' + formatIndianCurrency(totalAmount), { x: 490, y, size: 11, font: fontBold, color: navy })
-
-    y -= 35
-
-    // Amount in Words box
-    if (totalAmount > 0) {
-      page.drawRectangle({ x: 40, y: y - 35, width: 515, height: 35, color: lightGray })
-
-      page.drawText('Amount in Words', { x: 50, y: y - 15, size: 8, font, color: gray })
-      page.drawText(numberToWords(totalAmount), { x: 50, y: y - 28, size: 10, font: fontItalic, color: black })
-    }
-
-    y -= 60
-
-    // Signature section
-    page.drawLine({ start: { x: 50, y: y }, end: { x: 230, y }, thickness: 1, color: gray })
-    page.drawLine({ start: { x: 365, y: y }, end: { x: 545, y }, thickness: 1, color: gray })
-
-    y -= 15
-    page.drawText('Received By (Consignee)', { x: 90, y, size: 9, font, color: gray })
-    page.drawText('Authorized Signatory (Arsh Traders)', { x: 370, y, size: 9, font, color: gray })
-
-    // Footer - Navy background
-    page.drawRectangle({ x: 0, y: 0, width, height: 35, color: navy })
-
-    page.drawText(`Email: ${ARSH_TRADERS_EMAIL} | Website: ${ARSH_TRADERS_WEBSITE}`, {
-      x: 40,
-      y: 15,
-      size: 7,
-      font,
-      color: white,
+    drawText(page, 'Grand Total:', totalsX, y, { font: fontBold, size: 10.5, color: COLORS.navy })
+    drawTextRight(page, formatIndianCurrency(totalAmount), totalsRight, y, {
+      font: fontBold,
+      size: 10.5,
+      color: COLORS.navy,
     })
-    page.drawText(ARSH_TRADERS_ADDRESS, {
-      x: width - 290,
-      y: 15,
-      size: 7,
+    y -= 28
+
+    // ---------- AMOUNT IN WORDS ----------
+    const wordsH = 40
+    drawRect(page, M, y - wordsH, CONTENT_W, wordsH, COLORS.lightBox)
+    drawText(page, 'Amount in Words', M + 10, y - 16, { font, size: 8, color: COLORS.slate })
+    drawText(page, numberToWords(totalAmount), M + 10, y - 30, { font: fontItalic, size: 9.5, color: COLORS.text })
+
+    y -= wordsH + 42
+
+    // ---------- SIGNATURE LINES ----------
+    const lineY = y
+    drawLine(page, M + 10, lineY, M + 230, lineY, 1, COLORS.line)
+    drawLine(page, M + CONTENT_W - 230, lineY, M + CONTENT_W - 10, lineY, 1, COLORS.line)
+
+    y -= 14
+    drawTextCenter(page, 'Received By (Consignee)', M + 120, y, { font, size: 8.5, color: COLORS.slate })
+    drawTextCenter(page, 'Authorized Signatory (Arsh Traders)', M + CONTENT_W - 120, y, {
       font,
-      color: white,
+      size: 8.5,
+      color: COLORS.slate,
     })
+
+    // ---------- FOOTER BAR ----------
+    const footerH = 32
+    drawRect(page, 0, 0, width, footerH, COLORS.navy)
+
+    drawText(page, `Email: ${ARSH_TRADERS_EMAIL} | Website: ${ARSH_TRADERS_WEBSITE}`, M, 12, {
+      font,
+      size: 7,
+      color: COLORS.white,
+    })
+    drawTextRight(page, ARSH_TRADERS_ADDRESS, width - M, 12, { font, size: 7, color: COLORS.white })
 
     const pdfBytes = await pdfDoc.save()
 
@@ -293,16 +421,155 @@ export async function GET(
   }
 }
 
+/* ---------------- Helpers ---------------- */
+
 function formatDate(dateStr: string) {
   if (!dateStr) return ''
   const date = new Date(dateStr)
-  return date.toLocaleDateString('en-IN', {
-    day: '2-digit',
-    month: '2-digit',
-    year: 'numeric'
-  })
+  return date.toLocaleDateString('en-IN', { day: '2-digit', month: '2-digit', year: 'numeric' })
 }
 
-function truncate(str: string, maxLen: number) {
-  return str.length > maxLen ? str.substring(0, maxLen - 2) + '..' : str
+function compactLines(lines: string[]) {
+  return (lines || [])
+    .map(s => String(s || '').trim())
+    .filter(Boolean)
+    .map(s => (s.length > 70 ? s.slice(0, 68) + '..' : s))
+}
+
+function drawRect(page: PDFPage, x: number, y: number, w: number, h: number, color: any) {
+  page.drawRectangle({ x, y, width: w, height: h, color })
+}
+
+function drawLine(page: PDFPage, x1: number, y1: number, x2: number, y2: number, thickness: number, color: any) {
+  page.drawLine({ start: { x: x1, y: y1 }, end: { x: x2, y: y2 }, thickness, color })
+}
+
+function drawText(
+  page: PDFPage,
+  text: string,
+  x: number,
+  y: number,
+  opts: { font: PDFFont; size: number; color: any }
+) {
+  page.drawText(String(text || ''), { x, y, font: opts.font, size: opts.size, color: opts.color })
+}
+
+function drawTextRight(
+  page: PDFPage,
+  text: string,
+  xRight: number,
+  y: number,
+  opts: { font: PDFFont; size: number; color: any }
+) {
+  const t = String(text || '')
+  const w = opts.font.widthOfTextAtSize(t, opts.size)
+  page.drawText(t, { x: xRight - w, y, font: opts.font, size: opts.size, color: opts.color })
+}
+
+function drawTextCenter(
+  page: PDFPage,
+  text: string,
+  xCenter: number,
+  y: number,
+  opts: { font: PDFFont; size: number; color: any }
+) {
+  const t = String(text || '')
+  const w = opts.font.widthOfTextAtSize(t, opts.size)
+  page.drawText(t, { x: xCenter - w / 2, y, font: opts.font, size: opts.size, color: opts.color })
+}
+
+function wrapText(text: string, font: PDFFont, size: number, maxWidth: number, maxLines = 2) {
+  const raw = String(text || '').replace(/\s+/g, ' ').trim()
+  if (!raw) return ['']
+
+  const words = raw.split(' ')
+  const lines: string[] = []
+  let cur = ''
+
+  const pushLine = (s: string) => lines.push(s.trim())
+
+  for (const w of words) {
+    const trial = cur ? `${cur} ${w}` : w
+    const trialW = font.widthOfTextAtSize(trial, size)
+    if (trialW <= maxWidth) {
+      cur = trial
+      continue
+    }
+
+    if (cur) pushLine(cur)
+    cur = w
+
+    if (lines.length === maxLines - 1) break
+  }
+
+  if (lines.length < maxLines && cur) pushLine(cur)
+
+  // Ellipsize if we still have remaining words
+  const used = lines.join(' ').split(' ').length
+  if (used < words.length) {
+    const lastIdx = Math.min(lines.length, maxLines) - 1
+    let last = lines[lastIdx] || ''
+    while (font.widthOfTextAtSize(last + '…', size) > maxWidth && last.length > 1) {
+      last = last.slice(0, -1)
+    }
+    lines[lastIdx] = last.trim() + '…'
+  }
+
+  return lines.slice(0, maxLines)
+}
+
+function drawLabelValuePill(page: PDFPage, args: {
+  label: string
+  value: string
+  x: number
+  y: number
+  maxPillW: number
+  font: PDFFont
+  fontBold: PDFFont
+  colors: any
+}) {
+  const { label, value, x, y, maxPillW, font, fontBold, colors } = args
+
+  drawText(page, label, x, y, { font, size: 9, color: colors.slate })
+
+  const pillPadX = 8
+  const pillH = 16
+  const textSize = 9.5
+  const textW = fontBold.widthOfTextAtSize(value, textSize)
+  const pillW = Math.min(maxPillW, textW + pillPadX * 2)
+
+  const pillX = x + font.widthOfTextAtSize(label, 9) + 8
+  const pillY = y - 4
+
+  drawRect(page, pillX, pillY, pillW, pillH, colors.lightBox)
+  drawText(page, value, pillX + pillPadX, pillY + 4, { font: fontBold, size: textSize, color: colors.text })
+}
+
+function drawCard(page: PDFPage, args: {
+  x: number
+  y: number
+  w: number
+  h: number
+  title: string
+  name: string
+  lines: string[]
+  font: PDFFont
+  fontBold: PDFFont
+  colors: any
+}) {
+  const { x, y, w, h, title, name, lines, font, fontBold, colors } = args
+
+  // main box
+  drawRect(page, x, y, w, h, colors.lightBox)
+  // left accent bar
+  drawRect(page, x, y, 3, h, colors.navy)
+
+  drawText(page, title, x + 12, y + h - 16, { font, size: 8.5, color: colors.slate })
+  drawText(page, name, x + 12, y + h - 32, { font: fontBold, size: 10.5, color: colors.text })
+
+  let ty = y + h - 46
+  for (const line of lines.slice(0, 3)) {
+    drawText(page, line, x + 12, ty, { font, size: 8.2, color: colors.text })
+    ty -= 11
+  }
 }

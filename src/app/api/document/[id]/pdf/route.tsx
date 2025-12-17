@@ -2,6 +2,8 @@ import { NextRequest, NextResponse } from 'next/server'
 import { createServerSupabaseAdmin } from '@/lib/supabase/server'
 import { PDFDocument, rgb, StandardFonts } from 'pdf-lib'
 import { numberToWords, formatIndianCurrency } from '@/lib/numberToWords'
+import { readFile } from 'fs/promises'
+import { join } from 'path'
 
 // Fixed Arsh Traders details
 const ARSH_TRADERS_ADDRESS = 'Plot No. 119-2A, Saket Nagar, Bhopal - 462024 (M.P.)'
@@ -49,111 +51,133 @@ export async function GET(
     const page = pdfDoc.addPage([595, 842]) // A4 size
     const font = await pdfDoc.embedFont(StandardFonts.Helvetica)
     const fontBold = await pdfDoc.embedFont(StandardFonts.HelveticaBold)
+    const fontItalic = await pdfDoc.embedFont(StandardFonts.HelveticaOblique)
+
+    // Load and embed logo
+    const logoPath = join(process.cwd(), 'HORIZONTAL LOGO.png')
+    const logoBytes = await readFile(logoPath)
+    const logoImage = await pdfDoc.embedPng(logoBytes)
+    const logoDims = logoImage.scale(0.3) // Scale to appropriate size
 
     const { width, height } = page.getSize()
     const navy = rgb(0.12, 0.23, 0.37)
-    const gray = rgb(0.4, 0.4, 0.4)
+    const gray = rgb(0.47, 0.55, 0.64)
+    const lightGray = rgb(0.97, 0.98, 0.99)
     const black = rgb(0, 0, 0)
+    const white = rgb(1, 1, 1)
 
-    let y = height - 50
+    let y = height
 
-    // Header
-    page.drawText('ARSH TRADERS', {
-      x: width / 2 - 80,
-      y,
-      size: 24,
-      font: fontBold,
-      color: navy,
+    // Header - Navy background
+    page.drawRectangle({ x: 0, y: y - 80, width, height: 80, color: navy })
+
+    // Draw Arsh Traders logo
+    page.drawImage(logoImage, {
+      x: 70,
+      y: y - 70,
+      width: logoDims.width,
+      height: logoDims.height,
     })
-    y -= 20
 
-    page.drawText('Goods Movement - Returnable Basis', {
-      x: width / 2 - 90,
-      y,
-      size: 10,
-      font,
-      color: gray,
-    })
+    y -= 100
+
+    // Navy stripe
+    page.drawRectangle({ x: 0, y: y - 4, width, height: 4, color: navy })
+    y -= 35
+
+    // Title
+    page.drawText('DELIVERY CHALLAN', { x: width / 2 - 95, y, size: 20, font: fontBold, color: navy })
+    y -= 18
+    page.drawText('Goods Movement - Returnable Basis', { x: width / 2 - 95, y, size: 10, font, color: gray })
     y -= 30
 
-    // Document Title
-    page.drawText('DELIVERY CHALLAN', {
-      x: width / 2 - 70,
-      y,
-      size: 16,
-      font: fontBold,
-      color: navy,
-    })
+    // Document info row (Challan No, Date, Ref)
+    const ksiChallanNos = [...new Set((lines || []).map(l => l.company_delivery_no).filter(Boolean))].join(', ')
+
+    page.drawText('Challan No:', { x: 40, y, size: 10, font, color: gray })
+    page.drawText(doc.doc_no, { x: 105, y, size: 10, font: fontBold, color: black })
+
+    page.drawText('Date:', { x: 280, y, size: 10, font, color: gray })
+    page.drawText(formatDate(doc.doc_date), { x: 315, y, size: 10, font: fontBold, color: black })
+
+    if (ksiChallanNos) {
+      page.drawText('Ref (KSI):', { x: 450, y, size: 10, font, color: gray })
+      page.drawText(ksiChallanNos, { x: 505, y, size: 10, font: fontBold, color: black })
+    }
+
     y -= 30
 
-    // Document Info
-    page.drawText(`Challan No: ${doc.doc_no}`, { x: 50, y, size: 10, font, color: black })
-    y -= 15
-    page.drawText(`Date: ${formatDate(doc.doc_date)}`, { x: 50, y, size: 10, font, color: black })
-    y -= 25
+    // Consignor/Consignee boxes
+    const boxWidth = 250
+    const boxHeight = 85
+    const boxX1 = 40
+    const boxX2 = 305
 
-    // Consignor
-    page.drawText('Ship From (Consignor)', { x: 50, y, size: 12, font: fontBold, color: navy })
-    y -= 15
-    page.drawText(doc.source?.name || 'N/A', { x: 50, y, size: 10, font, color: black })
-    y -= 12
+    // Consignor box (left)
+    page.drawRectangle({ x: boxX1, y: y - boxHeight, width: boxWidth, height: boxHeight, color: lightGray })
+    page.drawRectangle({ x: boxX1, y: y - boxHeight, width: 3, height: boxHeight, color: navy })
 
+    page.drawText('SHIP FROM (CONSIGNOR)', { x: boxX1 + 10, y: y - 15, size: 9, font, color: gray })
+    page.drawText(doc.source?.name || 'N/A', { x: boxX1 + 10, y: y - 30, size: 11, font: fontBold, color: black })
+
+    let consignorY = y - 43
     if (doc.source?.name === 'Arsh Traders') {
-      page.drawText(ARSH_TRADERS_ADDRESS, { x: 50, y, size: 9, font, color: black })
-      y -= 12
-      page.drawText(`GSTIN: ${ARSH_TRADERS_GSTIN}`, { x: 50, y, size: 9, font, color: black })
-      y -= 12
-      page.drawText(`Email: ${ARSH_TRADERS_EMAIL}`, { x: 50, y, size: 9, font, color: black })
-      y -= 12
+      page.drawText(ARSH_TRADERS_ADDRESS, { x: boxX1 + 10, y: consignorY, size: 8, font, color: black })
+      consignorY -= 11
+      page.drawText(`GSTIN: ${ARSH_TRADERS_GSTIN}`, { x: boxX1 + 10, y: consignorY, size: 8, font, color: black })
+      consignorY -= 11
+      page.drawText(`Email: ${ARSH_TRADERS_EMAIL}`, { x: boxX1 + 10, y: consignorY, size: 8, font, color: black })
     } else {
       if (doc.source?.address) {
-        page.drawText(doc.source.address, { x: 50, y, size: 9, font, color: black })
-        y -= 12
+        page.drawText(doc.source.address.substring(0, 45), { x: boxX1 + 10, y: consignorY, size: 8, font, color: black })
+        consignorY -= 11
       }
       if (doc.source?.gstin) {
-        page.drawText(`GSTIN: ${doc.source.gstin}`, { x: 50, y, size: 9, font, color: black })
-        y -= 12
+        page.drawText(`GSTIN: ${doc.source.gstin}`, { x: boxX1 + 10, y: consignorY, size: 8, font, color: black })
+        consignorY -= 11
       }
       if (doc.source?.contact) {
-        page.drawText(`Contact: ${doc.source.contact}`, { x: 50, y, size: 9, font, color: black })
-        y -= 12
+        page.drawText(`Contact: ${doc.source.contact}`, { x: boxX1 + 10, y: consignorY, size: 8, font, color: black })
       }
     }
-    y -= 10
 
-    // Consignee
-    page.drawText('Ship To (Consignee)', { x: 50, y, size: 12, font: fontBold, color: navy })
-    y -= 15
-    page.drawText(doc.destination?.name || 'N/A', { x: 50, y, size: 10, font, color: black })
-    y -= 12
+    // Consignee box (right)
+    page.drawRectangle({ x: boxX2, y: y - boxHeight, width: boxWidth, height: boxHeight, color: lightGray })
+    page.drawRectangle({ x: boxX2, y: y - boxHeight, width: 3, height: boxHeight, color: navy })
 
+    page.drawText('SHIP TO (CONSIGNEE)', { x: boxX2 + 10, y: y - 15, size: 9, font, color: gray })
+    page.drawText(doc.destination?.name || 'N/A', { x: boxX2 + 10, y: y - 30, size: 11, font: fontBold, color: black })
+
+    let consigneeY = y - 43
     if (doc.destination?.address) {
-      page.drawText(doc.destination.address, { x: 50, y, size: 9, font, color: black })
-      y -= 12
+      page.drawText(doc.destination.address.substring(0, 45), { x: boxX2 + 10, y: consigneeY, size: 8, font, color: black })
+      consigneeY -= 11
     }
     if (doc.destination?.gstin) {
-      page.drawText(`GSTIN: ${doc.destination.gstin}`, { x: 50, y, size: 9, font, color: black })
-      y -= 12
+      page.drawText(`GSTIN: ${doc.destination.gstin}`, { x: boxX2 + 10, y: consigneeY, size: 8, font, color: black })
+      consigneeY -= 11
     }
     if (doc.destination?.contact) {
-      page.drawText(`Contact: ${doc.destination.contact}`, { x: 50, y, size: 9, font, color: black })
-      y -= 12
+      page.drawText(`Contact: ${doc.destination.contact}`, { x: boxX2 + 10, y: consigneeY, size: 8, font, color: black })
     }
-    y -= 20
+
+    y -= boxHeight + 25
 
     // Table Header
-    const colX = [50, 100, 200, 340, 400, 460, 520]
-    page.drawText('Sr.', { x: colX[0], y, size: 9, font: fontBold, color: navy })
-    page.drawText('Code', { x: colX[1], y, size: 9, font: fontBold, color: navy })
-    page.drawText('Description', { x: colX[2], y, size: 9, font: fontBold, color: navy })
-    page.drawText('HSN', { x: colX[3], y, size: 9, font: fontBold, color: navy })
-    page.drawText('Qty', { x: colX[4], y, size: 9, font: fontBold, color: navy })
-    page.drawText('Rate', { x: colX[5], y, size: 9, font: fontBold, color: navy })
-    page.drawText('Amount', { x: colX[6], y, size: 9, font: fontBold, color: navy })
+    const tableTop = y
+    const colX = [40, 70, 140, 340, 450, 500, 530]
 
-    y -= 2
-    page.drawLine({ start: { x: 50, y }, end: { x: width - 50, y }, thickness: 1, color: navy })
-    y -= 15
+    page.drawRectangle({ x: 40, y: tableTop - 20, width: width - 80, height: 20, color: navy })
+
+    page.drawText('SR.', { x: colX[0] + 5, y: tableTop - 13, size: 8, font: fontBold, color: white })
+    page.drawText('MATERIAL CODE', { x: colX[1] + 5, y: tableTop - 13, size: 8, font: fontBold, color: white })
+    page.drawText('DESCRIPTION', { x: colX[2] + 5, y: tableTop - 13, size: 8, font: fontBold, color: white })
+    page.drawText('HSN', { x: colX[3] + 5, y: tableTop - 13, size: 8, font: fontBold, color: white })
+    page.drawText('QTY', { x: colX[4] + 5, y: tableTop - 13, size: 8, font: fontBold, color: white })
+    page.drawText('RATE (₹)', { x: colX[5] - 5, y: tableTop - 13, size: 8, font: fontBold, color: white })
+    page.drawText('AMOUNT (₹)', { x: colX[6] - 10, y: tableTop - 13, size: 8, font: fontBold, color: white })
+
+    y = tableTop - 23
 
     // Table Rows
     let totalQty = 0
@@ -161,21 +185,6 @@ export async function GET(
 
     for (let idx = 0; idx < (lines || []).length; idx++) {
       const line = lines![idx]
-
-      if (y < 100) {
-        // Add new page if needed
-        const newPage = pdfDoc.addPage([595, 842])
-        y = height - 50
-        newPage.drawText('Sr.', { x: colX[0], y, size: 9, font: fontBold, color: navy })
-        newPage.drawText('Code', { x: colX[1], y, size: 9, font: fontBold, color: navy })
-        newPage.drawText('Description', { x: colX[2], y, size: 9, font: fontBold, color: navy })
-        newPage.drawText('HSN', { x: colX[3], y, size: 9, font: fontBold, color: navy })
-        newPage.drawText('Qty', { x: colX[4], y, size: 9, font: fontBold, color: navy })
-        newPage.drawText('Rate', { x: colX[5], y, size: 9, font: fontBold, color: navy })
-        newPage.drawText('Amount', { x: colX[6], y, size: 9, font: fontBold, color: navy })
-        y -= 15
-      }
-
       const qty = Number(line.qty) || 0
       const rate = Number(line.challan_line?.unit_cost) || 0
       const amount = qty * rate
@@ -184,50 +193,87 @@ export async function GET(
       totalQty += qty
       totalAmount += amount
 
-      page.drawText(String(idx + 1), { x: colX[0], y, size: 8, font, color: black })
-      page.drawText(truncate(String(line.material_code || ''), 10), { x: colX[1], y, size: 7, font, color: black })
-      page.drawText(truncate(String(line.material_description || ''), 20), { x: colX[2], y, size: 8, font, color: black })
-      page.drawText(truncate(hsn, 10), { x: colX[3], y, size: 8, font, color: black })
-      page.drawText(String(qty), { x: colX[4], y, size: 8, font: fontBold, color: black })
-      page.drawText(rate > 0 ? formatIndianCurrency(rate) : '-', { x: colX[5], y, size: 8, font, color: black })
-      page.drawText(amount > 0 ? formatIndianCurrency(amount) : '-', { x: colX[6], y, size: 8, font: fontBold, color: black })
+      // Alternating row background
+      if (idx % 2 === 1) {
+        page.drawRectangle({ x: 40, y: y - 18, width: width - 80, height: 18, color: lightGray })
+      }
 
-      y -= 18
+      y -= 13
+
+      page.drawText(String(idx + 1), { x: colX[0] + 5, y, size: 8, font, color: black })
+      page.drawText(truncate(String(line.material_code || ''), 12), { x: colX[1] + 5, y, size: 7, font: fontBold, color: black })
+      page.drawText(truncate(String(line.material_description || ''), 35), { x: colX[2] + 5, y, size: 8, font, color: black })
+      page.drawText(hsn, { x: colX[3] + 5, y, size: 8, font, color: black })
+      page.drawText(String(qty), { x: colX[4] + 15, y, size: 8, font: fontBold, color: black })
+      page.drawText(rate > 0 ? formatIndianCurrency(rate) : '-', { x: colX[5] + 5, y, size: 8, font, color: black })
+      page.drawText(amount > 0 ? formatIndianCurrency(amount) : '-', { x: colX[6] + 5, y, size: 8, font: fontBold, color: black })
+
+      y -= 5
     }
 
-    // Total Line
+    // Total row
     y -= 5
-    page.drawLine({ start: { x: 50, y }, end: { x: width - 50, y }, thickness: 1, color: navy })
+    page.drawRectangle({ x: 40, y: y - 20, width: width - 80, height: 2, color: navy })
     y -= 15
 
-    page.drawText('TOTAL', { x: colX[2], y, size: 10, font: fontBold, color: navy })
-    page.drawText(String(totalQty), { x: colX[4], y, size: 10, font: fontBold, color: navy })
-    page.drawText(totalAmount > 0 ? formatIndianCurrency(totalAmount) : '-', { x: colX[6], y, size: 10, font: fontBold, color: navy })
+    page.drawText('TOTAL', { x: colX[3], y, size: 10, font: fontBold, color: black })
+    page.drawText(String(totalQty), { x: colX[4] + 15, y, size: 10, font: fontBold, color: black })
+    page.drawText(formatIndianCurrency(totalAmount), { x: colX[6] + 5, y, size: 10, font: fontBold, color: black })
 
-    y -= 25
+    y -= 35
 
-    // Amount in Words
+    // Totals section (right-aligned)
+    page.drawText('Total Quantity:', { x: 435, y, size: 10, font, color: black })
+    page.drawText(String(totalQty), { x: 535, y, size: 10, font: fontBold, color: black })
+    y -= 18
+
+    page.drawText('Sub Total:', { x: 435, y, size: 10, font, color: black })
+    page.drawText(formatIndianCurrency(totalAmount), { x: 490, y, size: 10, font: fontBold, color: black })
+    y -= 5
+
+    // Grand Total with line
+    page.drawRectangle({ x: 430, y: y - 2, width: 125, height: 2, color: navy })
+    y -= 20
+
+    page.drawText('Grand Total:', { x: 435, y, size: 11, font: fontBold, color: navy })
+    page.drawText('₹' + formatIndianCurrency(totalAmount), { x: 490, y, size: 11, font: fontBold, color: navy })
+
+    y -= 35
+
+    // Amount in Words box
     if (totalAmount > 0) {
-      page.drawText('Amount in Words:', { x: 50, y, size: 10, font, color: black })
-      y -= 15
-      page.drawText(numberToWords(totalAmount), { x: 50, y, size: 10, font: fontBold, color: navy })
-      y -= 20
+      page.drawRectangle({ x: 40, y: y - 35, width: 515, height: 35, color: lightGray })
+
+      page.drawText('Amount in Words', { x: 50, y: y - 15, size: 8, font, color: gray })
+      page.drawText(numberToWords(totalAmount), { x: 50, y: y - 28, size: 10, font: fontItalic, color: black })
     }
 
-    // Footer
+    y -= 60
+
+    // Signature section
+    page.drawLine({ start: { x: 50, y: y }, end: { x: 230, y }, thickness: 1, color: gray })
+    page.drawLine({ start: { x: 365, y: y }, end: { x: 545, y }, thickness: 1, color: gray })
+
+    y -= 15
+    page.drawText('Received By (Consignee)', { x: 90, y, size: 9, font, color: gray })
+    page.drawText('Authorized Signatory (Arsh Traders)', { x: 370, y, size: 9, font, color: gray })
+
+    // Footer - Navy background
+    page.drawRectangle({ x: 0, y: 0, width, height: 35, color: navy })
+
     page.drawText(`Email: ${ARSH_TRADERS_EMAIL} | Website: ${ARSH_TRADERS_WEBSITE}`, {
-      x: width / 2 - 120,
-      y: 40,
-      size: 8,
+      x: 40,
+      y: 15,
+      size: 7,
       font,
-      color: gray,
+      color: white,
     })
     page.drawText(ARSH_TRADERS_ADDRESS, {
-      x: width / 2 - 130,
-      y: 25,
-      size: 8,
+      x: width - 290,
+      y: 15,
+      size: 7,
       font,
-      color: gray,
+      color: white,
     })
 
     const pdfBytes = await pdfDoc.save()

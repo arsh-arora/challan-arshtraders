@@ -102,6 +102,26 @@ export default function AddLinesModal({
     )
   }
 
+  const handleSelectAllForDelivery = (deliveryNumber: string) => {
+    const itemsInDelivery = groupedItems[deliveryNumber] || []
+
+    // Add all items from this delivery with their available qty
+    const newSelections = itemsInDelivery.map(item => ({
+      challan_line_id: item.challan_line_id,
+      qty: item.available_qty,
+      material_code: item.material_code,
+      material_description: item.material_description,
+      delivery_number: item.delivery_number,
+      available_qty: item.available_qty,
+    }))
+
+    // Remove any existing selections from this delivery first, then add new ones
+    const otherSelections = selectedLines.filter(
+      line => line.delivery_number !== deliveryNumber
+    )
+    setSelectedLines([...otherSelections, ...newSelections])
+  }
+
   const handleAdd = () => {
     if (selectedLines.length === 0) {
       alert('Please select at least one item')
@@ -202,13 +222,19 @@ export default function AddLinesModal({
             <div className="space-y-6">
               {Object.entries(groupedItems).map(([deliveryNumber, items]) => (
                 <div key={deliveryNumber} className="border border-gray-200 rounded-lg overflow-hidden">
-                  <div className="bg-gray-50 px-4 py-3 border-b border-gray-200">
+                  <div className="bg-gray-50 px-4 py-3 border-b border-gray-200 flex justify-between items-center">
                     <h3 className="font-semibold text-gray-900">
                       Delivery: {deliveryNumber}
                       <span className="ml-2 text-sm text-gray-500">
                         ({items[0].delivery_date || 'N/A'})
                       </span>
                     </h3>
+                    <button
+                      onClick={() => handleSelectAllForDelivery(deliveryNumber)}
+                      className="px-3 py-1.5 text-xs font-medium text-blue-700 bg-blue-50 border border-blue-200 rounded-md hover:bg-blue-100 hover:border-blue-300 transition-colors focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-offset-1"
+                    >
+                      Select All
+                    </button>
                   </div>
 
                   <div className="divide-y divide-gray-200">

@@ -151,7 +151,7 @@ export default function TicketsPage() {
                     Material Code
                   </th>
                   <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                    Delivery No
+                    Description
                   </th>
                   <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
                     Current Location
@@ -180,8 +180,8 @@ export default function TicketsPage() {
                     <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900">
                       {ticket.material_code}
                     </td>
-                    <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900">
-                      {ticket.delivery_number}
+                    <td className="px-6 py-4 text-sm text-gray-900">
+                      {ticket.material_description || '-'}
                     </td>
                     <td className="px-6 py-4 whitespace-nowrap text-sm">
                       {ticket.current_location ? (

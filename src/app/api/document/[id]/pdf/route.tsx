@@ -283,7 +283,7 @@ export async function GET(
         drawText(page, String(i + 1), X.sr + 10, ty, { font, size: 9, color: COLORS.text })
         drawText(page, String(line.material_code || ''), X.code + 8, ty, {
           font: fontBold,
-          size: 9,
+          size: 7.5,
           color: COLORS.text,
         })
 

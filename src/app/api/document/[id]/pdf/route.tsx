@@ -70,7 +70,7 @@ export async function GET(
 
     // Load logo (white logo recommended for dark header bar)
     // Keep this filename if that’s what you have in /public
-    const logoPath = join(process.cwd(), 'public', 'arsh-logo-horizontal.png')
+    const logoPath = join(process.cwd(), 'public', 'horizontal-logo.png')
     let logoImage: any = null
     let logoDims: { width: number; height: number } | null = null
     try {

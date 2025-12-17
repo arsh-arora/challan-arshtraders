@@ -298,14 +298,14 @@ interface DocumentData {
   doc_no: string
   doc_date: string
   doc_type: 'in' | 'out' | 'return'
-  source: {
+  source_location: {
     name: string
     kind: string
     gstin?: string
     address?: string
     contact?: string
   }
-  destination: {
+  dest_location: {
     name: string
     kind: string
     gstin?: string

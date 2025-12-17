@@ -54,10 +54,10 @@ export async function GET(
     const fontItalic = await pdfDoc.embedFont(StandardFonts.HelveticaOblique)
 
     // Load and embed logo
-    const logoPath = join(process.cwd(), 'HORIZONTAL LOGO.png')
+    const logoPath = join(process.cwd(), 'public', 'arsh-logo-horizontal.png')
     const logoBytes = await readFile(logoPath)
     const logoImage = await pdfDoc.embedPng(logoBytes)
-    const logoDims = logoImage.scale(0.3) // Scale to appropriate size
+    const logoDims = logoImage.scale(0.25) // Scale to appropriate size
 
     const { width, height } = page.getSize()
     const navy = rgb(0.12, 0.23, 0.37)
@@ -165,7 +165,7 @@ export async function GET(
 
     // Table Header
     const tableTop = y
-    const colX = [40, 70, 140, 340, 450, 500, 530]
+    const colX = [40, 70, 145, 320, 385, 430, 500]
 
     page.drawRectangle({ x: 40, y: tableTop - 20, width: width - 80, height: 20, color: navy })
 
@@ -173,9 +173,9 @@ export async function GET(
     page.drawText('MATERIAL CODE', { x: colX[1] + 5, y: tableTop - 13, size: 8, font: fontBold, color: white })
     page.drawText('DESCRIPTION', { x: colX[2] + 5, y: tableTop - 13, size: 8, font: fontBold, color: white })
     page.drawText('HSN', { x: colX[3] + 5, y: tableTop - 13, size: 8, font: fontBold, color: white })
-    page.drawText('QTY', { x: colX[4] + 5, y: tableTop - 13, size: 8, font: fontBold, color: white })
-    page.drawText('RATE (Rs.)', { x: colX[5] - 5, y: tableTop - 13, size: 8, font: fontBold, color: white })
-    page.drawText('AMOUNT (Rs.)', { x: colX[6] - 10, y: tableTop - 13, size: 8, font: fontBold, color: white })
+    page.drawText('QTY', { x: colX[4] + 8, y: tableTop - 13, size: 8, font: fontBold, color: white })
+    page.drawText('RATE (Rs.)', { x: colX[5] + 2, y: tableTop - 13, size: 8, font: fontBold, color: white })
+    page.drawText('AMOUNT (Rs.)', { x: colX[6] + 2, y: tableTop - 13, size: 8, font: fontBold, color: white })
 
     y = tableTop - 23
 
@@ -200,11 +200,11 @@ export async function GET(
 
       y -= 13
 
-      page.drawText(String(idx + 1), { x: colX[0] + 5, y, size: 8, font, color: black })
+      page.drawText(String(idx + 1), { x: colX[0] + 8, y, size: 8, font, color: black })
       page.drawText(truncate(String(line.material_code || ''), 12), { x: colX[1] + 5, y, size: 7, font: fontBold, color: black })
-      page.drawText(truncate(String(line.material_description || ''), 35), { x: colX[2] + 5, y, size: 8, font, color: black })
+      page.drawText(truncate(String(line.material_description || ''), 30), { x: colX[2] + 5, y, size: 8, font, color: black })
       page.drawText(hsn, { x: colX[3] + 5, y, size: 8, font, color: black })
-      page.drawText(String(qty), { x: colX[4] + 15, y, size: 8, font: fontBold, color: black })
+      page.drawText(String(qty), { x: colX[4] + 12, y, size: 8, font: fontBold, color: black })
       page.drawText(rate > 0 ? formatIndianCurrency(rate) : '-', { x: colX[5] + 5, y, size: 8, font, color: black })
       page.drawText(amount > 0 ? formatIndianCurrency(amount) : '-', { x: colX[6] + 5, y, size: 8, font: fontBold, color: black })
 
@@ -216,8 +216,8 @@ export async function GET(
     page.drawRectangle({ x: 40, y: y - 20, width: width - 80, height: 2, color: navy })
     y -= 15
 
-    page.drawText('TOTAL', { x: colX[3], y, size: 10, font: fontBold, color: black })
-    page.drawText(String(totalQty), { x: colX[4] + 15, y, size: 10, font: fontBold, color: black })
+    page.drawText('TOTAL', { x: colX[3] + 5, y, size: 10, font: fontBold, color: black })
+    page.drawText(String(totalQty), { x: colX[4] + 12, y, size: 10, font: fontBold, color: black })
     page.drawText(formatIndianCurrency(totalAmount), { x: colX[6] + 5, y, size: 10, font: fontBold, color: black })
 
     y -= 35

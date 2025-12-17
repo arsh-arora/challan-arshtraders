@@ -174,8 +174,8 @@ export async function GET(
     page.drawText('DESCRIPTION', { x: colX[2] + 5, y: tableTop - 13, size: 8, font: fontBold, color: white })
     page.drawText('HSN', { x: colX[3] + 5, y: tableTop - 13, size: 8, font: fontBold, color: white })
     page.drawText('QTY', { x: colX[4] + 5, y: tableTop - 13, size: 8, font: fontBold, color: white })
-    page.drawText('RATE (₹)', { x: colX[5] - 5, y: tableTop - 13, size: 8, font: fontBold, color: white })
-    page.drawText('AMOUNT (₹)', { x: colX[6] - 10, y: tableTop - 13, size: 8, font: fontBold, color: white })
+    page.drawText('RATE (Rs.)', { x: colX[5] - 5, y: tableTop - 13, size: 8, font: fontBold, color: white })
+    page.drawText('AMOUNT (Rs.)', { x: colX[6] - 10, y: tableTop - 13, size: 8, font: fontBold, color: white })
 
     y = tableTop - 23
 
@@ -236,7 +236,7 @@ export async function GET(
     y -= 20
 
     page.drawText('Grand Total:', { x: 435, y, size: 11, font: fontBold, color: navy })
-    page.drawText('₹' + formatIndianCurrency(totalAmount), { x: 490, y, size: 11, font: fontBold, color: navy })
+    page.drawText('Rs. ' + formatIndianCurrency(totalAmount), { x: 490, y, size: 11, font: fontBold, color: navy })
 
     y -= 35
 

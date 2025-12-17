@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { createServerSupabaseAdmin } from '@/lib/supabase/server'
-import PDFDocument from 'pdfkit'
+import { PDFDocument, rgb, StandardFonts } from 'pdf-lib'
 import { numberToWords, formatIndianCurrency } from '@/lib/numberToWords'
 
 // Fixed Arsh Traders details
@@ -45,23 +45,194 @@ export async function GET(
       .order('material_code')
 
     // Create PDF
-    const doc2 = new PDFDocument({ size: 'A4', margin: 50 })
-    const chunks: Buffer[] = []
+    const pdfDoc = await PDFDocument.create()
+    const page = pdfDoc.addPage([595, 842]) // A4 size
+    const font = await pdfDoc.embedFont(StandardFonts.Helvetica)
+    const fontBold = await pdfDoc.embedFont(StandardFonts.HelveticaBold)
 
-    doc2.on('data', (chunk) => chunks.push(chunk))
+    const { width, height } = page.getSize()
+    const navy = rgb(0.12, 0.23, 0.37)
+    const gray = rgb(0.4, 0.4, 0.4)
+    const black = rgb(0, 0, 0)
 
-    await new Promise<void>((resolve, reject) => {
-      doc2.on('end', () => resolve())
-      doc2.on('error', reject)
+    let y = height - 50
 
-      // Generate PDF content
-      generatePDF(doc2, doc, lines || [])
-      doc2.end()
+    // Header
+    page.drawText('ARSH TRADERS', {
+      x: width / 2 - 80,
+      y,
+      size: 24,
+      font: fontBold,
+      color: navy,
+    })
+    y -= 20
+
+    page.drawText('Goods Movement - Returnable Basis', {
+      x: width / 2 - 90,
+      y,
+      size: 10,
+      font,
+      color: gray,
+    })
+    y -= 30
+
+    // Document Title
+    page.drawText('DELIVERY CHALLAN', {
+      x: width / 2 - 70,
+      y,
+      size: 16,
+      font: fontBold,
+      color: navy,
+    })
+    y -= 30
+
+    // Document Info
+    page.drawText(`Challan No: ${doc.doc_no}`, { x: 50, y, size: 10, font, color: black })
+    y -= 15
+    page.drawText(`Date: ${formatDate(doc.doc_date)}`, { x: 50, y, size: 10, font, color: black })
+    y -= 25
+
+    // Consignor
+    page.drawText('Ship From (Consignor)', { x: 50, y, size: 12, font: fontBold, color: navy })
+    y -= 15
+    page.drawText(doc.source?.name || 'N/A', { x: 50, y, size: 10, font, color: black })
+    y -= 12
+
+    if (doc.source?.name === 'Arsh Traders') {
+      page.drawText(ARSH_TRADERS_ADDRESS, { x: 50, y, size: 9, font, color: black })
+      y -= 12
+      page.drawText(`GSTIN: ${ARSH_TRADERS_GSTIN}`, { x: 50, y, size: 9, font, color: black })
+      y -= 12
+      page.drawText(`Email: ${ARSH_TRADERS_EMAIL}`, { x: 50, y, size: 9, font, color: black })
+      y -= 12
+    } else {
+      if (doc.source?.address) {
+        page.drawText(doc.source.address, { x: 50, y, size: 9, font, color: black })
+        y -= 12
+      }
+      if (doc.source?.gstin) {
+        page.drawText(`GSTIN: ${doc.source.gstin}`, { x: 50, y, size: 9, font, color: black })
+        y -= 12
+      }
+      if (doc.source?.contact) {
+        page.drawText(`Contact: ${doc.source.contact}`, { x: 50, y, size: 9, font, color: black })
+        y -= 12
+      }
+    }
+    y -= 10
+
+    // Consignee
+    page.drawText('Ship To (Consignee)', { x: 50, y, size: 12, font: fontBold, color: navy })
+    y -= 15
+    page.drawText(doc.destination?.name || 'N/A', { x: 50, y, size: 10, font, color: black })
+    y -= 12
+
+    if (doc.destination?.address) {
+      page.drawText(doc.destination.address, { x: 50, y, size: 9, font, color: black })
+      y -= 12
+    }
+    if (doc.destination?.gstin) {
+      page.drawText(`GSTIN: ${doc.destination.gstin}`, { x: 50, y, size: 9, font, color: black })
+      y -= 12
+    }
+    if (doc.destination?.contact) {
+      page.drawText(`Contact: ${doc.destination.contact}`, { x: 50, y, size: 9, font, color: black })
+      y -= 12
+    }
+    y -= 20
+
+    // Table Header
+    const colX = [50, 100, 200, 340, 400, 460, 520]
+    page.drawText('Sr.', { x: colX[0], y, size: 9, font: fontBold, color: navy })
+    page.drawText('Code', { x: colX[1], y, size: 9, font: fontBold, color: navy })
+    page.drawText('Description', { x: colX[2], y, size: 9, font: fontBold, color: navy })
+    page.drawText('HSN', { x: colX[3], y, size: 9, font: fontBold, color: navy })
+    page.drawText('Qty', { x: colX[4], y, size: 9, font: fontBold, color: navy })
+    page.drawText('Rate', { x: colX[5], y, size: 9, font: fontBold, color: navy })
+    page.drawText('Amount', { x: colX[6], y, size: 9, font: fontBold, color: navy })
+
+    y -= 2
+    page.drawLine({ start: { x: 50, y }, end: { x: width - 50, y }, thickness: 1, color: navy })
+    y -= 15
+
+    // Table Rows
+    let totalQty = 0
+    let totalAmount = 0
+
+    for (let idx = 0; idx < (lines || []).length; idx++) {
+      const line = lines![idx]
+
+      if (y < 100) {
+        // Add new page if needed
+        const newPage = pdfDoc.addPage([595, 842])
+        y = height - 50
+        newPage.drawText('Sr.', { x: colX[0], y, size: 9, font: fontBold, color: navy })
+        newPage.drawText('Code', { x: colX[1], y, size: 9, font: fontBold, color: navy })
+        newPage.drawText('Description', { x: colX[2], y, size: 9, font: fontBold, color: navy })
+        newPage.drawText('HSN', { x: colX[3], y, size: 9, font: fontBold, color: navy })
+        newPage.drawText('Qty', { x: colX[4], y, size: 9, font: fontBold, color: navy })
+        newPage.drawText('Rate', { x: colX[5], y, size: 9, font: fontBold, color: navy })
+        newPage.drawText('Amount', { x: colX[6], y, size: 9, font: fontBold, color: navy })
+        y -= 15
+      }
+
+      const qty = Number(line.qty) || 0
+      const rate = Number(line.challan_line?.unit_cost) || 0
+      const amount = qty * rate
+      const hsn = String(line.challan_line?.hsn_code || '')
+
+      totalQty += qty
+      totalAmount += amount
+
+      page.drawText(String(idx + 1), { x: colX[0], y, size: 8, font, color: black })
+      page.drawText(truncate(String(line.material_code || ''), 10), { x: colX[1], y, size: 7, font, color: black })
+      page.drawText(truncate(String(line.material_description || ''), 20), { x: colX[2], y, size: 8, font, color: black })
+      page.drawText(truncate(hsn, 10), { x: colX[3], y, size: 8, font, color: black })
+      page.drawText(String(qty), { x: colX[4], y, size: 8, font: fontBold, color: black })
+      page.drawText(rate > 0 ? formatIndianCurrency(rate) : '-', { x: colX[5], y, size: 8, font, color: black })
+      page.drawText(amount > 0 ? formatIndianCurrency(amount) : '-', { x: colX[6], y, size: 8, font: fontBold, color: black })
+
+      y -= 18
+    }
+
+    // Total Line
+    y -= 5
+    page.drawLine({ start: { x: 50, y }, end: { x: width - 50, y }, thickness: 1, color: navy })
+    y -= 15
+
+    page.drawText('TOTAL', { x: colX[2], y, size: 10, font: fontBold, color: navy })
+    page.drawText(String(totalQty), { x: colX[4], y, size: 10, font: fontBold, color: navy })
+    page.drawText(totalAmount > 0 ? formatIndianCurrency(totalAmount) : '-', { x: colX[6], y, size: 10, font: fontBold, color: navy })
+
+    y -= 25
+
+    // Amount in Words
+    if (totalAmount > 0) {
+      page.drawText('Amount in Words:', { x: 50, y, size: 10, font, color: black })
+      y -= 15
+      page.drawText(numberToWords(totalAmount), { x: 50, y, size: 10, font: fontBold, color: navy })
+      y -= 20
+    }
+
+    // Footer
+    page.drawText(`Email: ${ARSH_TRADERS_EMAIL} | Website: ${ARSH_TRADERS_WEBSITE}`, {
+      x: width / 2 - 120,
+      y: 40,
+      size: 8,
+      font,
+      color: gray,
+    })
+    page.drawText(ARSH_TRADERS_ADDRESS, {
+      x: width / 2 - 130,
+      y: 25,
+      size: 8,
+      font,
+      color: gray,
     })
 
-    const pdfBuffer = Buffer.concat(chunks)
+    const pdfBytes = await pdfDoc.save()
 
-    return new NextResponse(pdfBuffer, {
+    return new NextResponse(Buffer.from(pdfBytes), {
       headers: {
         'Content-Type': 'application/pdf',
         'Content-Disposition': `attachment; filename="${doc.doc_no}.pdf"`,
@@ -76,119 +247,6 @@ export async function GET(
   }
 }
 
-function generatePDF(doc: PDFKit.PDFDocument, docData: any, lines: any[]) {
-  const NAVY = '#1e3a5f'
-
-  // Header
-  doc.fontSize(24).fillColor(NAVY).text('ARSH TRADERS', { align: 'center' })
-  doc.fontSize(10).fillColor('#666').text('Goods Movement - Returnable Basis', { align: 'center' })
-  doc.moveDown()
-
-  // Document info
-  doc.fontSize(16).fillColor(NAVY).text('DELIVERY CHALLAN', { align: 'center' })
-  doc.moveDown()
-
-  doc.fontSize(10).fillColor('#000')
-  doc.text(`Challan No: ${docData.doc_no}`, 50)
-  doc.text(`Date: ${formatDate(docData.doc_date)}`, 50)
-  doc.moveDown()
-
-  // Consignor
-  doc.fontSize(12).fillColor(NAVY).text('Ship From (Consignor)', 50)
-  doc.fontSize(10).fillColor('#000')
-  doc.text(`${docData.source?.name || 'N/A'}`, 50)
-  if (docData.source?.name === 'Arsh Traders') {
-    doc.text(ARSH_TRADERS_ADDRESS, 50)
-    doc.text(`GSTIN: ${ARSH_TRADERS_GSTIN}`, 50)
-    doc.text(`Email: ${ARSH_TRADERS_EMAIL}`, 50)
-  } else {
-    if (docData.source?.address) doc.text(docData.source.address, 50)
-    if (docData.source?.gstin) doc.text(`GSTIN: ${docData.source.gstin}`, 50)
-    if (docData.source?.contact) doc.text(`Contact: ${docData.source.contact}`, 50)
-  }
-  doc.moveDown()
-
-  // Consignee
-  doc.fontSize(12).fillColor(NAVY).text('Ship To (Consignee)', 50)
-  doc.fontSize(10).fillColor('#000')
-  doc.text(`${docData.destination?.name || 'N/A'}`, 50)
-  if (docData.destination?.address) doc.text(docData.destination.address, 50)
-  if (docData.destination?.gstin) doc.text(`GSTIN: ${docData.destination.gstin}`, 50)
-  if (docData.destination?.contact) doc.text(`Contact: ${docData.destination.contact}`, 50)
-  doc.moveDown(2)
-
-  // Table header
-  const tableTop = doc.y
-  const colX = [50, 80, 160, 310, 380, 430, 510]
-
-  doc.fontSize(9).fillColor(NAVY)
-  doc.text('Sr.', colX[0], tableTop)
-  doc.text('Material Code', colX[1], tableTop)
-  doc.text('Description', colX[2], tableTop)
-  doc.text('HSN', colX[3], tableTop)
-  doc.text('Qty', colX[4], tableTop)
-  doc.text('Rate (₹)', colX[5], tableTop)
-  doc.text('Amount (₹)', colX[6], tableTop)
-
-  doc.moveTo(50, tableTop + 15).lineTo(590, tableTop + 15).stroke()
-
-  // Table rows
-  let y = tableTop + 25
-  let totalQty = 0
-  let totalAmount = 0
-
-  lines.forEach((line, idx) => {
-    if (y > 700) {
-      doc.addPage()
-      y = 50
-    }
-
-    const qty = Number(line.qty) || 0
-    const rate = Number(line.challan_line?.unit_cost) || 0
-    const amount = qty * rate
-    const hsn = String(line.challan_line?.hsn_code || '')
-
-    totalQty += qty
-    totalAmount += amount
-
-    doc.fontSize(9).fillColor('#000')
-    doc.text(String(idx + 1), colX[0], y)
-    doc.text(String(line.material_code || ''), colX[1], y, { width: 70 })
-    doc.text(String(line.material_description || ''), colX[2], y, { width: 140 })
-    doc.text(hsn, colX[3], y, { width: 65 })
-    doc.text(String(qty), colX[4], y)
-    doc.text(rate > 0 ? formatIndianCurrency(rate) : '-', colX[5], y)
-    doc.text(amount > 0 ? formatIndianCurrency(amount) : '-', colX[6], y)
-
-    y += 20
-  })
-
-  // Total line
-  doc.moveTo(50, y).lineTo(590, y).stroke()
-  y += 10
-
-  doc.fontSize(10).fillColor(NAVY)
-  doc.text('TOTAL', colX[2] + 50, y)
-  doc.text(String(totalQty), colX[4], y)
-  doc.text(totalAmount > 0 ? formatIndianCurrency(totalAmount) : '-', colX[6], y)
-
-  y += 30
-
-  // Amount in words
-  if (totalAmount > 0) {
-    doc.fontSize(10).fillColor('#000')
-    doc.text('Amount in Words:', 50, y)
-    doc.fontSize(10).fillColor(NAVY)
-    doc.text(numberToWords(totalAmount), 50, y + 15, { width: 500 })
-    y += 50
-  }
-
-  // Footer
-  doc.fontSize(8).fillColor('#666')
-  doc.text(`Email: ${ARSH_TRADERS_EMAIL} | Website: ${ARSH_TRADERS_WEBSITE}`, 50, 750, { align: 'center' })
-  doc.text(ARSH_TRADERS_ADDRESS, 50, 765, { align: 'center' })
-}
-
 function formatDate(dateStr: string) {
   if (!dateStr) return ''
   const date = new Date(dateStr)
@@ -197,4 +255,8 @@ function formatDate(dateStr: string) {
     month: '2-digit',
     year: 'numeric'
   })
+}
+
+function truncate(str: string, maxLen: number) {
+  return str.length > maxLen ? str.substring(0, maxLen - 2) + '..' : str
 }

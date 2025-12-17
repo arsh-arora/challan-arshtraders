@@ -11,8 +11,8 @@ const ARSH_TRADERS_GSTIN = '23AECPC0996H2ZR'
 const ARSH_TRADERS_EMAIL = 'director@arshtraders.com'
 const ARSH_TRADERS_WEBSITE = 'arshtraders.com'
 
-// Logo path - using file path for server-side PDF rendering (horizontal logo)
-const ARSH_LOGO_PATH = process.cwd() + '/public/horizontal-logo.png'
+// Logo path - use public URL for both dev and production
+const ARSH_LOGO_PATH = 'https://challan.arshtraders.com/horizontal-logo.png'
 
 
 const styles = StyleSheet.create({

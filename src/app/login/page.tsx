@@ -17,10 +17,13 @@ function LoginContent() {
     try {
       const supabase = createClient()
 
+      // Use environment variable for production URL, fallback to window.location.origin for local dev
+      const siteUrl = process.env.NEXT_PUBLIC_SITE_URL || window.location.origin
+
       const { error } = await supabase.auth.signInWithOAuth({
         provider: 'google',
         options: {
-          redirectTo: `${window.location.origin}/auth/callback`,
+          redirectTo: `${siteUrl}/auth/callback`,
           queryParams: {
             access_type: 'offline',
             prompt: 'consent',

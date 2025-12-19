@@ -104,13 +104,13 @@ export async function GET(
     // ---------- TITLE ----------
     let y = height - headerH - 28
 
-    drawTextCenter(page, 'DELIVERY CHALLAN', width / 2, y, {
+    drawTextCenter(page, 'DEMO ISSUE', width / 2, y, {
       font: fontBold,
       size: 18,
       color: COLORS.navy,
     })
     y -= 16
-    drawTextCenter(page, 'Goods Movement - Returnable Basis', width / 2, y, {
+    drawTextCenter(page, '(GOODS SENT FOR DEMO ON RETURNABLE BASIS)', width / 2, y, {
       font,
       size: 9.5,
       color: COLORS.slate,

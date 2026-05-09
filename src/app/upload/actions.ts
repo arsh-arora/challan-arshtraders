@@ -1,6 +1,8 @@
 'use server'
 
 import { createServerSupabaseAdmin } from '@/lib/supabase/server'
+import { getAppConfig } from '@/lib/config'
+import { requireAllowedUser } from '@/lib/auth'
 import { ColumnMapping } from '@/types/database'
 
 interface ImportRow {
@@ -12,12 +14,23 @@ export async function importChallan(
   rows: ImportRow[],
   mapping: ColumnMapping
 ) {
-  const supabase = await createServerSupabaseAdmin()
-
   try {
+    await requireAllowedUser()
+
+    const supabase = await createServerSupabaseAdmin()
+    const config = getAppConfig()
+
     // 1. Ensure locations exist
-    const warehouseLocation = await ensureLocation(supabase, 'Arsh Traders', 'warehouse')
-    const companyLocation = await ensureLocation(supabase, `Company:${supplierName}`, 'company')
+    const warehouseLocation = await ensureLocation(
+      supabase,
+      config.locations.warehouseName,
+      'warehouse'
+    )
+    const companyLocation = await ensureLocation(
+      supabase,
+      `${config.locations.companyPrefix}${supplierName}`,
+      'company'
+    )
 
     if (!warehouseLocation || !companyLocation) {
       throw new Error('Failed to create locations')
@@ -90,6 +103,13 @@ export async function importChallan(
     const existingChallanMap = new Map(
       existingChallans?.map((c) => [c.delivery_number, c.id]) || []
     )
+    const createdChallanIds: string[] = []
+
+    if (existingChallans && existingChallans.length > 0) {
+      throw new Error(
+        `Delivery number(s) already imported for this supplier: ${existingChallans.map((c) => c.delivery_number).join(', ')}`
+      )
+    }
 
     // Create missing challans in batch
     const newChallansToCreate = deliveryNumbers
@@ -114,18 +134,32 @@ export async function importChallan(
       }
 
       // Add new challans to map
-      newChallans?.forEach((c) => existingChallanMap.set(c.delivery_number, c.id))
+      newChallans?.forEach((c) => {
+        existingChallanMap.set(c.delivery_number, c.id)
+        createdChallanIds.push(c.id)
+      })
     }
 
     // 6. Batch insert all challan lines at once
-    const allChallanLines = validRows.map((r) => ({
-      challan_id: existingChallanMap.get(r.deliveryNumber),
-      item_id: itemMap.get(r.materialCode),
-      item_number: r.itemNumber,
-      hsn_code: r.hsnCode,
-      unit_cost: r.unitCost,
-      qty_received: r.qty,
-    }))
+    const allChallanLines = validRows.map((r) => {
+      const challanId = existingChallanMap.get(r.deliveryNumber)
+      const itemId = itemMap.get(r.materialCode)
+
+      if (!challanId || !itemId) {
+        throw new Error(
+          `Failed to resolve import references for delivery ${r.deliveryNumber}, material ${r.materialCode}`
+        )
+      }
+
+      return {
+        challan_id: challanId,
+        item_id: itemId,
+        item_number: r.itemNumber,
+        hsn_code: r.hsnCode,
+        unit_cost: r.unitCost,
+        qty_received: r.qty,
+      }
+    })
 
     const { data: challanLines, error: linesError } = await supabase
       .from('company_challan_lines')
@@ -133,13 +167,18 @@ export async function importChallan(
       .select('id')
 
     if (linesError || !challanLines) {
+      await rollbackImport(supabase, {
+        docId: null,
+        challanLineIds: [],
+        challanIds: createdChallanIds,
+      })
       throw new Error(`Failed to create challan lines: ${linesError?.message}`)
     }
 
     totalLinesImported = challanLines.length
 
     // 7. Create inbound doc (company → warehouse)
-    const docNo = `IN-${supplierName.substring(0, 10)}-${Date.now()}`
+    const docNo = `${config.documents.inboundPrefix}-${supplierName.substring(0, 10)}-${Date.now()}`
     const { data: doc, error: docError } = await supabase
       .from('docs')
       .insert({
@@ -155,6 +194,11 @@ export async function importChallan(
       .single()
 
     if (docError || !doc) {
+      await rollbackImport(supabase, {
+        docId: null,
+        challanLineIds: challanLines.map((line) => line.id),
+        challanIds: createdChallanIds,
+      })
       throw new Error(`Failed to create doc: ${docError?.message}`)
     }
 
@@ -174,7 +218,12 @@ export async function importChallan(
       .insert(docLinesToInsert)
 
     if (docLinesError) {
-      console.error('Failed to create doc lines:', docLinesError)
+      await rollbackImport(supabase, {
+        docId: doc.id,
+        challanLineIds: challanLines.map((line) => line.id),
+        challanIds: createdChallanIds,
+      })
+      throw new Error(`Failed to create doc lines: ${docLinesError.message}`)
     }
 
     return {
@@ -188,6 +237,28 @@ export async function importChallan(
       success: false,
       message: error instanceof Error ? error.message : 'Import failed',
     }
+  }
+}
+
+async function rollbackImport(
+  supabase: any,
+  {
+    docId,
+    challanLineIds,
+    challanIds,
+  }: { docId: string | null; challanLineIds: string[]; challanIds: string[] }
+) {
+  if (docId) {
+    await supabase.from('doc_lines').delete().eq('doc_id', docId)
+    await supabase.from('docs').delete().eq('id', docId)
+  }
+
+  if (challanLineIds.length > 0) {
+    await supabase.from('company_challan_lines').delete().in('id', challanLineIds)
+  }
+
+  if (challanIds.length > 0) {
+    await supabase.from('company_challans').delete().in('id', challanIds)
   }
 }
 

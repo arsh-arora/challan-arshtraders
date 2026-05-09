@@ -1,6 +1,8 @@
 'use server'
 
 import { createServerSupabaseAdmin } from '@/lib/supabase/server'
+import { getAppConfig } from '@/lib/config'
+import { requireAllowedUser } from '@/lib/auth'
 import {
   getBatchAvailableAtLocation,
   getAvailableInventory,
@@ -42,16 +44,13 @@ function determineDocType(destKind: string): 'in' | 'out' | 'return' {
   }
 }
 
-/**
- * Generate a unique ticket code for items leaving warehouse
- * Format: TKT-YYYYMMDD-XXXX (e.g., TKT-20241216-0001)
- */
-async function generateTicketCode(supabase: any): Promise<string> {
-  const today = new Date()
-  const dateStr = today.toISOString().slice(0, 10).replace(/-/g, '')
-  const prefix = `TKT-${dateStr}-`
+async function createTicketCodeGenerator(supabase: any) {
+  const {
+    tickets: { prefix: ticketPrefix, sequenceWidth },
+  } = getAppConfig()
+  const dateStr = new Date().toISOString().slice(0, 10).replace(/-/g, '')
+  const prefix = `${ticketPrefix}-${dateStr}-`
 
-  // Get the highest ticket number for today
   const { data: lastTicket } = await supabase
     .from('doc_lines')
     .select('ticket_code')
@@ -66,7 +65,18 @@ async function generateTicketCode(supabase: any): Promise<string> {
     nextNum = lastNum + 1
   }
 
-  return `${prefix}${nextNum.toString().padStart(4, '0')}`
+  const issued = new Set<string>()
+
+  return () => {
+    let ticketCode = ''
+    do {
+      ticketCode = `${prefix}${nextNum.toString().padStart(sequenceWidth, '0')}`
+      nextNum += 1
+    } while (issued.has(ticketCode))
+
+    issued.add(ticketCode)
+    return ticketCode
+  }
 }
 
 /**
@@ -110,9 +120,12 @@ export async function createDocument(
   header: DocumentHeader,
   lines: DocumentLine[]
 ) {
-  const supabase = await createServerSupabaseAdmin()
-
   try {
+    await requireAllowedUser()
+
+    const supabase = await createServerSupabaseAdmin()
+    const config = getAppConfig()
+
     // Validate that source and dest are different
     if (header.source_location_id === header.dest_location_id) {
       return {
@@ -129,8 +142,48 @@ export async function createDocument(
       }
     }
 
+    const normalizedLineMap = new Map<string, DocumentLine>()
+
+    for (const line of lines) {
+      const qty = Number(line.qty)
+
+      if (!Number.isFinite(qty) || qty <= 0) {
+        return {
+          success: false,
+          message: 'All line quantities must be positive numbers',
+        }
+      }
+
+      const existing = normalizedLineMap.get(line.challan_line_id)
+      if (existing) {
+        if (
+          existing.ticket_code &&
+          line.ticket_code &&
+          existing.ticket_code !== line.ticket_code
+        ) {
+          return {
+            success: false,
+            message: 'Duplicate line items cannot use different ticket codes',
+          }
+        }
+
+        normalizedLineMap.set(line.challan_line_id, {
+          ...existing,
+          qty: existing.qty + qty,
+          ticket_code: existing.ticket_code || line.ticket_code,
+        })
+      } else {
+        normalizedLineMap.set(line.challan_line_id, {
+          ...line,
+          qty,
+        })
+      }
+    }
+
+    const normalizedLines = Array.from(normalizedLineMap.values())
+
     // Get all challan_line_ids
-    const challanLineIds = lines.map((line) => line.challan_line_id)
+    const challanLineIds = normalizedLines.map((line) => line.challan_line_id)
 
     // Batch fetch: availability, challan line details, AND location info in parallel
     const [
@@ -164,13 +217,27 @@ export async function createDocument(
         .single(),
     ])
 
+    if (!sourceLocation || !destLocation) {
+      return {
+        success: false,
+        message: 'Source or destination location was not found',
+      }
+    }
+
+    if (!challanLineDetails || challanLineDetails.length !== challanLineIds.length) {
+      return {
+        success: false,
+        message: 'One or more selected line items no longer exist',
+      }
+    }
+
     // Create lookup map for challan line details
     const challanLineMap = new Map(
       challanLineDetails?.map((cl) => [cl.id, cl]) || []
     )
 
     // Validate availability for all lines
-    for (const line of lines) {
+    for (const line of normalizedLines) {
       const available = availabilityMap.get(line.challan_line_id) || 0
 
       if (line.qty > available) {
@@ -199,9 +266,12 @@ export async function createDocument(
       const mismatchedItems: string[] = []
       // Location names have "Company:" prefix, but supplier_name in DB doesn't
       // e.g., location "Company:Karl Storz" → supplier_name "Karl Storz"
-      const expectedSupplier = destLocation.name.replace(/^Company:/i, '')
+      const expectedSupplier = stripPrefix(
+        destLocation.name,
+        config.locations.companyPrefix
+      )
 
-      for (const line of lines) {
+      for (const line of normalizedLines) {
         const challanLine = challanLineMap.get(line.challan_line_id)
         if (challanLine) {
           const supplierName = (challanLine.company_challans as any).supplier_name
@@ -236,6 +306,7 @@ export async function createDocument(
       challanLineIds,
       header.source_location_id
     )
+    const issueTicketCode = await createTicketCodeGenerator(supabase)
 
     // Create document header with auto-detected doc_type
     const { data: doc, error: docError } = await supabase
@@ -261,7 +332,7 @@ export async function createDocument(
 
     // Build all doc_lines for batch insert
     const docLinesToInsert = []
-    for (const line of lines) {
+    for (const line of normalizedLines) {
       const challanLine = challanLineMap.get(line.challan_line_id)
       if (!challanLine) continue
 
@@ -272,14 +343,16 @@ export async function createDocument(
       let ticketCode = line.ticket_code
 
       if (!ticketCode) {
-        // Check if there's an existing ticket for this item at the source location
-        const existingTicket = existingTicketMap.get(line.challan_line_id)
-        if (existingTicket) {
-          // Carry forward the existing ticket
-          ticketCode = existingTicket
-        } else if (shouldAutoGenerateTickets) {
-          // Generate new ticket only when leaving warehouse for partner/hospital
-          ticketCode = await generateTicketCode(supabase)
+        if (shouldAutoGenerateTickets) {
+          // New checkout from warehouse gets a fresh ticket, even if the item was
+          // previously returned to warehouse under an older ticket.
+          ticketCode = issueTicketCode()
+        } else {
+          const existingTicket = existingTicketMap.get(line.challan_line_id)
+          if (existingTicket) {
+            // Carry forward the existing ticket
+            ticketCode = existingTicket
+          }
         }
       }
 
@@ -298,13 +371,25 @@ export async function createDocument(
     }
 
     // Batch insert all doc_lines in one query
-    if (docLinesToInsert.length > 0) {
-      const { error: linesError } = await supabase
-        .from('doc_lines')
-        .insert(docLinesToInsert)
+    if (docLinesToInsert.length !== normalizedLines.length) {
+      await supabase.from('docs').delete().eq('id', doc.id)
+      return {
+        success: false,
+        message: 'Failed to prepare all document lines',
+      }
+    }
 
-      if (linesError) {
-        console.error('Failed to insert doc_lines:', linesError)
+    const { error: linesError } = await supabase
+      .from('doc_lines')
+      .insert(docLinesToInsert)
+
+    if (linesError) {
+      await supabase.from('doc_lines').delete().eq('doc_id', doc.id)
+      await supabase.from('docs').delete().eq('id', doc.id)
+
+      return {
+        success: false,
+        message: `Failed to create document lines: ${linesError.message}`,
       }
     }
 
@@ -327,10 +412,12 @@ export async function createDocument(
 }
 
 export async function getLocations() {
+  await requireAllowedUser()
+
   const supabase = await createServerSupabaseAdmin()
 
   // Try to fetch with new columns first, fallback to basic columns if they don't exist
-  let { data, error } = await supabase
+  const { data, error } = await supabase
     .from('locations')
     .select('id, name, kind, gstin, address, contact')
     .eq('is_active', true)
@@ -363,6 +450,7 @@ export async function getLocations() {
 }
 
 export async function getAvailableItems(locationId: string) {
+  await requireAllowedUser()
   return getAvailableInventory(locationId)
 }
 
@@ -375,6 +463,8 @@ export interface LocationInput {
 }
 
 export async function createLocation(input: LocationInput) {
+  await requireAllowedUser()
+
   const supabase = await createServerSupabaseAdmin()
   const { name, kind, gstin, address, contact } = input
 
@@ -445,6 +535,8 @@ export async function updateLocation(
   id: string,
   updates: { gstin?: string; address?: string; contact?: string }
 ) {
+  await requireAllowedUser()
+
   const supabase = await createServerSupabaseAdmin()
 
   const { error } = await supabase
@@ -458,4 +550,10 @@ export async function updateLocation(
 
   revalidatePath('/document')
   return { success: true, message: 'Location updated' }
+}
+
+function stripPrefix(value: string, prefix: string) {
+  return value.toLowerCase().startsWith(prefix.toLowerCase())
+    ? value.slice(prefix.length)
+    : value
 }

@@ -2,10 +2,13 @@ import { NextRequest, NextResponse } from 'next/server'
 import { createServerSupabaseAdmin } from '@/lib/supabase/server'
 import { PDFDocument, rgb, StandardFonts, PDFFont, PDFPage } from 'pdf-lib'
 import { numberToWords, formatIndianCurrency } from '@/lib/numberToWords'
+import { getAppConfig } from '@/lib/config'
+import { isAuthorizationError, requireAllowedUser } from '@/lib/auth'
 import { readFile } from 'fs/promises'
 import { join } from 'path'
 
-// Fixed Arsh Traders details
+// Fixed Arsh Traders details - this is an internal Arsh Traders tool.
+const ARSH_TRADERS_NAME = 'Arsh Traders'
 const ARSH_TRADERS_ADDRESS = 'Plot No. 119-2A, Saket Nagar, Bhopal - 462024 (M.P.)'
 const ARSH_TRADERS_GSTIN = '23AECPC0996H2ZR'
 const ARSH_TRADERS_EMAIL = 'director@arshtraders.com'
@@ -16,9 +19,13 @@ export async function GET(
   context: { params: Promise<{ id: string }> }
 ) {
   const { id } = await context.params
-  const supabase = await createServerSupabaseAdmin()
 
   try {
+    await requireAllowedUser()
+
+    const supabase = await createServerSupabaseAdmin()
+    const config = getAppConfig()
+
     // Fetch document
     const { data: doc, error: docError } = await supabase
       .from('docs')
@@ -70,7 +77,7 @@ export async function GET(
 
     // Load logo (white logo recommended for dark header bar)
     // Keep this filename if that’s what you have in /public
-    const logoPath = join(process.cwd(), 'public', 'horizontal-logo.png')
+    const logoPath = join(process.cwd(), 'public', config.business.logoFile)
     let logoImage: any = null
     let logoDims: { width: number; height: number } | null = null
     try {
@@ -171,7 +178,7 @@ export async function GET(
       title: 'SHIP FROM (CONSIGNOR)',
       name: doc.source?.name || 'N/A',
       lines:
-        (doc.source?.name || '') === 'Arsh Traders'
+        (doc.source?.name || '') === ARSH_TRADERS_NAME
           ? [
               ARSH_TRADERS_ADDRESS,
               `GSTIN: ${ARSH_TRADERS_GSTIN}`,
@@ -387,7 +394,7 @@ export async function GET(
 
     y -= 14
     drawTextCenter(page, 'Received By (Consignee)', M + 120, y, { font, size: 8.5, color: COLORS.slate })
-    drawTextCenter(page, 'Authorized Signatory (Arsh Traders)', M + CONTENT_W - 120, y, {
+    drawTextCenter(page, `Authorized Signatory (${ARSH_TRADERS_NAME})`, M + CONTENT_W - 120, y, {
       font,
       size: 8.5,
       color: COLORS.slate,
@@ -413,6 +420,10 @@ export async function GET(
       },
     })
   } catch (error) {
+    if (isAuthorizationError(error)) {
+      return NextResponse.json({ error: error.message }, { status: error.status })
+    }
+
     console.error('PDF Generation Error:', error)
     return NextResponse.json(
       { error: 'Failed to generate PDF', details: error instanceof Error ? error.message : 'Unknown' },

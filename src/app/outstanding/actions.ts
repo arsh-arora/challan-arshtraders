@@ -1,6 +1,7 @@
 'use server'
 
 import { createServerSupabaseAdmin } from '@/lib/supabase/server'
+import { requireAllowedUser } from '@/lib/auth'
 
 export interface OutstandingItem {
   challan_line_id: string
@@ -14,6 +15,8 @@ export interface OutstandingItem {
 }
 
 export async function getOutstanding(deliveryNumberFilter?: string) {
+  await requireAllowedUser()
+
   const supabase = await createServerSupabaseAdmin()
 
   let query = supabase

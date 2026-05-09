@@ -2,6 +2,8 @@
 
 import { createServerSupabaseAdmin } from '@/lib/supabase/server'
 import { getBatchAvailableAtLocation } from '@/lib/availability'
+import { getAppConfig } from '@/lib/config'
+import { requireAllowedUser } from '@/lib/auth'
 
 export interface InventoryItem {
   challan_line_id: string
@@ -20,13 +22,16 @@ export interface InventoryItem {
 }
 
 export async function getInventory(searchTerm?: string) {
+  await requireAllowedUser()
+
   const supabase = await createServerSupabaseAdmin()
+  const config = getAppConfig()
 
   // Get warehouse location
   const { data: warehouse } = await supabase
     .from('locations')
     .select('id')
-    .eq('name', 'Arsh Traders')
+    .eq('name', config.locations.warehouseName)
     .single()
 
   if (!warehouse) {
@@ -107,17 +112,6 @@ export async function getInventory(searchTerm?: string) {
     // Actual return: source=anything except company initial, dest=company
     return destKind === 'company' && sourceKind !== 'company'
   })
-
-  // Debug: Log all doc movements to trace return calculation
-  console.log('[getInventory] Total doc_lines:', allDocLines?.length)
-  console.log('[getInventory] Return doc_lines:', returnData?.length)
-  if (returnData && returnData.length > 0) {
-    console.log('[getInventory] Sample return:', {
-      sourceKind: (returnData[0].docs as any)?.source?.kind,
-      destKind: (returnData[0].docs as any)?.destination?.kind,
-      qty: returnData[0].qty
-    })
-  }
 
   // Aggregate return quantities by challan_line_id
   const returnTotals = new Map<string, number>()

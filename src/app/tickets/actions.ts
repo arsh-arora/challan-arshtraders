@@ -1,6 +1,7 @@
 'use server'
 
 import { createServerSupabaseAdmin } from '@/lib/supabase/server'
+import { requireAllowedUser } from '@/lib/auth'
 
 export interface TicketInfo {
   ticket_code: string
@@ -43,6 +44,8 @@ export async function getTickets(
   searchTerm?: string,
   showActiveOnly: boolean = false
 ) {
+  await requireAllowedUser()
+
   const supabase = await createServerSupabaseAdmin()
 
   // Get all doc_lines with ticket_code
@@ -197,6 +200,8 @@ export async function getTickets(
 export async function getTicketDetails(
   ticketCode: string
 ): Promise<TicketDetails | null> {
+  await requireAllowedUser()
+
   const supabase = await createServerSupabaseAdmin()
 
   // Get all doc_lines with this ticket_code

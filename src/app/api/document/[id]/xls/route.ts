@@ -2,7 +2,8 @@
 
 import { NextRequest, NextResponse } from 'next/server'
 import { createServerSupabaseAdmin } from '@/lib/supabase/server'
-import * as XLSX from 'xlsx'
+import { isAuthorizationError, requireAllowedUser } from '@/lib/auth'
+import ExcelJS from 'exceljs'
 
 // Fixed Arsh Traders details - non-negotiable
 const ARSH_TRADERS_ADDRESS = 'Plot No. 119-2A, Saket Nagar, Bhopal - 462024 (M.P.)'
@@ -14,9 +15,12 @@ export async function GET(
   context: { params: Promise<{ id: string }> }
 ) {
   const { id } = await context.params
-  const supabase = await createServerSupabaseAdmin()
 
   try {
+    await requireAllowedUser()
+
+    const supabase = await createServerSupabaseAdmin()
+
     // Fetch document with full location details including GSTIN, address, contact
     const { data: doc, error: docError } = await supabase
       .from('docs')
@@ -219,34 +223,32 @@ export async function GET(
     wsData.push(['', '', '', '', '', '', '', '', '', '', '', 'Signature of supplier/ authorised representative', '', '', '', ''])
 
     // Create workbook and worksheet
-    const wb = XLSX.utils.book_new()
-    const ws = XLSX.utils.aoa_to_sheet(wsData)
+    const wb = new ExcelJS.Workbook()
+    const ws = wb.addWorksheet('Delivery Challan')
+    ws.addRows(wsData)
 
     // Set column widths
-    ws['!cols'] = [
-      { wch: 6 },   // SR.No.
-      { wch: 15 },  // Material Code
-      { wch: 40 },  // Description
-      { wch: 12 },  // HSN
-      { wch: 10 },  // Quantity
-      { wch: 12 },  // Rate
-      { wch: 15 },  // Total base
-      { wch: 12 },  // Taxable
-      { wch: 6 },   // CGST Rate
-      { wch: 10 },  // CGST Amount
-      { wch: 6 },   // SGST Rate
-      { wch: 10 },  // SGST Amount
-      { wch: 6 },   // IGST Rate
-      { wch: 10 },  // IGST Amount
-      { wch: 15 },  // Total incl tax
-      { wch: 20 },  // Remarks
+    ws.columns = [
+      { width: 6 },   // SR.No.
+      { width: 15 },  // Material Code
+      { width: 40 },  // Description
+      { width: 12 },  // HSN
+      { width: 10 },  // Quantity
+      { width: 12 },  // Rate
+      { width: 15 },  // Total base
+      { width: 12 },  // Taxable
+      { width: 6 },   // CGST Rate
+      { width: 10 },  // CGST Amount
+      { width: 6 },   // SGST Rate
+      { width: 10 },  // SGST Amount
+      { width: 6 },   // IGST Rate
+      { width: 10 },  // IGST Amount
+      { width: 15 },  // Total incl tax
+      { width: 20 },  // Remarks
     ]
 
-    // Add worksheet to workbook
-    XLSX.utils.book_append_sheet(wb, ws, 'Delivery Challan')
-
     // Generate buffer
-    const buffer = XLSX.write(wb, { type: 'buffer', bookType: 'xlsx' })
+    const buffer = Buffer.from(await wb.xlsx.writeBuffer())
 
     return new NextResponse(buffer, {
       headers: {
@@ -255,6 +257,10 @@ export async function GET(
       },
     })
   } catch (error) {
+    if (isAuthorizationError(error)) {
+      return NextResponse.json({ error: error.message }, { status: error.status })
+    }
+
     console.error('XLS generation error:', error)
     return NextResponse.json(
       { error: 'Failed to generate XLS', details: error instanceof Error ? error.message : 'Unknown error' },

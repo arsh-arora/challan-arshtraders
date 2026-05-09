@@ -1,8 +1,38 @@
 import { createServerClient } from '@supabase/ssr'
 import { NextResponse, type NextRequest } from 'next/server'
 
+function csvLowerList(value: string | undefined) {
+  return (value ?? '')
+    .split(',')
+    .map((entry) => entry.trim().toLowerCase())
+    .filter(Boolean)
+}
+
+function isEmailAllowed(email: string | undefined) {
+  if (!email) return false
+
+  const allowedEmails = csvLowerList(process.env.AUTH_ALLOWED_EMAILS)
+  const allowedDomains = csvLowerList(process.env.AUTH_ALLOWED_DOMAINS).map(
+    (domain) => domain.replace(/^@/, '')
+  )
+  const requireAllowlist =
+    process.env.AUTH_REQUIRE_ALLOWLIST === 'true' ||
+    (process.env.AUTH_REQUIRE_ALLOWLIST !== 'false' &&
+      process.env.NODE_ENV === 'production')
+
+  if (allowedEmails.length === 0 && allowedDomains.length === 0) {
+    return !requireAllowlist
+  }
+
+  const normalizedEmail = email.toLowerCase()
+  if (allowedEmails.includes(normalizedEmail)) return true
+
+  const domain = normalizedEmail.split('@')[1]
+  return Boolean(domain && allowedDomains.includes(domain))
+}
+
 export async function middleware(request: NextRequest) {
-  let supabaseResponse = NextResponse.next({
+  const supabaseResponse = NextResponse.next({
     request,
   })
 
@@ -41,8 +71,17 @@ export async function middleware(request: NextRequest) {
     return NextResponse.redirect(url)
   }
 
+  const allowedUser = user ? isEmailAllowed(user.email) : false
+
+  if (user && !allowedUser && !request.nextUrl.pathname.startsWith('/login')) {
+    const url = request.nextUrl.clone()
+    url.pathname = '/login'
+    url.searchParams.set('error', 'unauthorized')
+    return NextResponse.redirect(url)
+  }
+
   // If user is signed in and tries to access /login, redirect to home
-  if (user && request.nextUrl.pathname.startsWith('/login')) {
+  if (user && allowedUser && request.nextUrl.pathname.startsWith('/login')) {
     const url = request.nextUrl.clone()
     url.pathname = '/'
     return NextResponse.redirect(url)

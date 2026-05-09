@@ -6,7 +6,8 @@
     "dev": "next dev",
     "build": "next build",
     "start": "next start",
-    "lint": "eslint"
+    "lint": "eslint",
+    "check:supabase": "node scripts/check-supabase.mjs"
   },
   "dependencies": {
     "@react-pdf/renderer": "^4.3.1",

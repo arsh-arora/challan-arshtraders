@@ -1,37 +1,80 @@
-This is a [Next.js](https://nextjs.org) project bootstrapped with [`create-next-app`](https://nextjs.org/docs/app/api-reference/cli/create-next-app).
+# Arsh Traders Challan Tracker
 
-## Getting Started
+Internal inventory and challan tracking tool for Arsh Traders.
 
-First, run the development server:
+## Runtime Requirements
+
+- Node.js 20
+- Supabase project with Postgres 17
+- Supabase CLI for database migrations
+
+## Environment
+
+Copy `.env.example` to `.env.local` for local development and fill the Supabase
+values from the active project:
 
 ```bash
-npm run dev
-# or
-yarn dev
-# or
-pnpm dev
-# or
-bun dev
+NEXT_PUBLIC_SUPABASE_URL=
+NEXT_PUBLIC_SUPABASE_ANON_KEY=
+SUPABASE_SERVICE_ROLE_KEY=
+NEXT_PUBLIC_APP_URL=
+AUTH_ALLOWED_EMAILS=
+AUTH_ALLOWED_DOMAINS=
+AUTH_REQUIRE_ALLOWLIST=true
 ```
 
-Open [http://localhost:3000](http://localhost:3000) with your browser to see the result.
+Keep the service role key only in server-side environment variables. Do not expose
+it in browser code or commit it to git.
 
-You can start editing the page by modifying `app/page.tsx`. The page auto-updates as you edit the file.
+## Supabase Setup
 
-This project uses [`next/font`](https://nextjs.org/docs/app/building-your-application/optimizing/fonts) to automatically optimize and load [Geist](https://vercel.com/font), a new font family for Vercel.
+Create or choose a Supabase project, then link this repo:
 
-## Learn More
+```bash
+supabase link --project-ref <project-ref>
+supabase db push --include-all
+npm run check:supabase
+```
 
-To learn more about Next.js, take a look at the following resources:
+The migration creates the required tables, indexes, outstanding-items view, RLS
+defaults, and the Arsh Traders warehouse location.
 
-- [Next.js Documentation](https://nextjs.org/docs) - learn about Next.js features and API.
-- [Learn Next.js](https://nextjs.org/learn) - an interactive Next.js tutorial.
+For authentication, configure the deployed app URL in Supabase Auth redirect
+URLs:
 
-You can check out [the Next.js GitHub repository](https://github.com/vercel/next.js) - your feedback and contributions are welcome!
+```text
+<deployed-app-url>/auth/callback
+```
 
-## Deploy on Vercel
+Also set `AUTH_ALLOWED_EMAILS` to the small list of internal user email
+addresses that can access the system.
 
-The easiest way to deploy your Next.js app is to use the [Vercel Platform](https://vercel.com/new?utm_medium=default-template&filter=next.js&utm_source=create-next-app&utm_campaign=create-next-app-readme) from the creators of Next.js.
+## Local Development
 
-Check out our [Next.js deployment documentation](https://nextjs.org/docs/app/building-your-application/deploying) for more details.
-# challan-arshtraders
+```bash
+npm install
+npm run check:supabase
+npm run dev
+```
+
+## Deployment
+
+Least-cost reliable setup for up to 5 internal users:
+
+- Supabase Pro for production Postgres and Auth so the database does not pause
+  and automatic backups are available.
+- Netlify or Vercel free/hobby deployment for the Next.js app.
+- Server-side env vars set in the hosting dashboard.
+- Database changes shipped only through `supabase/migrations`.
+
+Supabase Free can be used for development or a zero-cost pilot, but it should not
+be treated as the reliable long-running production database.
+
+Before deploying:
+
+```bash
+npm run lint
+npx tsc --noEmit --pretty false
+npm run build
+npm run check:supabase
+```

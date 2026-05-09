@@ -32,6 +32,7 @@ const envSchema = z.object({
   DOC_DEFAULT_PREFIX: z.string().min(1).default('DOC'),
   TICKET_PREFIX: z.string().min(1).default('TKT'),
   TICKET_SEQUENCE_WIDTH: z.coerce.number().int().positive().default(4),
+  KEEPALIVE_TOKEN: z.string().min(24).optional(),
 })
 
 export type AppConfig = ReturnType<typeof getAppConfig>
@@ -67,6 +68,9 @@ let cachedConfig: {
   tickets: {
     prefix: string
     sequenceWidth: number
+  }
+  keepalive: {
+    token?: string
   }
 }
 
@@ -111,6 +115,9 @@ export function getAppConfig() {
     tickets: {
       prefix: env.TICKET_PREFIX,
       sequenceWidth: env.TICKET_SEQUENCE_WIDTH,
+    },
+    keepalive: {
+      token: env.KEEPALIVE_TOKEN,
     },
   }
 

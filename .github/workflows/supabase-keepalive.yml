@@ -1,0 +1,22 @@
+name: Supabase Keepalive
+
+on:
+  schedule:
+    - cron: '17 */12 * * *'
+  workflow_dispatch:
+
+jobs:
+  ping:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: Ping deployed Supabase health endpoint
+        env:
+          KEEPALIVE_URL: ${{ secrets.SUPABASE_KEEPALIVE_URL }}
+          KEEPALIVE_TOKEN: ${{ secrets.SUPABASE_KEEPALIVE_TOKEN }}
+        run: |
+          test -n "$KEEPALIVE_URL"
+          test -n "$KEEPALIVE_TOKEN"
+          curl --fail --show-error --silent --max-time 30 \
+            --header "Authorization: Bearer ${KEEPALIVE_TOKEN}" \
+            "$KEEPALIVE_URL"

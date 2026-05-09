@@ -70,6 +70,24 @@ Least-cost reliable setup for up to 5 internal users:
 Supabase Free can be used for development or a zero-cost pilot, but it should not
 be treated as the reliable long-running production database.
 
+## Supabase Keepalive
+
+Free Supabase projects can pause after inactivity. This repo includes a
+best-effort scheduled keepalive that calls the deployed app every 12 hours:
+
+- `GET /api/health/supabase` performs a lightweight Supabase query.
+- `.github/workflows/supabase-keepalive.yml` calls that endpoint on a schedule.
+
+Required secrets:
+
+```bash
+KEEPALIVE_TOKEN=<long-random-token>                # Netlify production env
+SUPABASE_KEEPALIVE_TOKEN=<same-token>              # GitHub Actions secret
+SUPABASE_KEEPALIVE_URL=<app-url>/api/health/supabase
+```
+
+This does not replace Supabase Pro for guaranteed no-pause production use.
+
 Before deploying:
 
 ```bash

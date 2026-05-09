@@ -62,7 +62,8 @@ export async function middleware(request: NextRequest) {
   // Public routes that don't require authentication
   const isPublicRoute =
     request.nextUrl.pathname.startsWith('/login') ||
-    request.nextUrl.pathname.startsWith('/auth')
+    request.nextUrl.pathname.startsWith('/auth') ||
+    request.nextUrl.pathname.startsWith('/api/health/supabase')
 
   // If user is not signed in and the current path is not public, redirect to /login
   if (!user && !isPublicRoute) {

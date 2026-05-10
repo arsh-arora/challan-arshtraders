@@ -23,8 +23,10 @@ export function isUserAllowed(user: User | null): boolean {
     auth: { allowedEmails, allowedDomains, requireAllowlist },
   } = getAppConfig()
 
+  if (!requireAllowlist) return true
+
   if (allowedEmails.length === 0 && allowedDomains.length === 0) {
-    return !requireAllowlist
+    return false
   }
 
   if (allowedEmails.includes(email)) return true

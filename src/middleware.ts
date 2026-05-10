@@ -20,8 +20,10 @@ function isEmailAllowed(email: string | undefined) {
     (process.env.AUTH_REQUIRE_ALLOWLIST !== 'false' &&
       process.env.NODE_ENV === 'production')
 
+  if (!requireAllowlist) return true
+
   if (allowedEmails.length === 0 && allowedDomains.length === 0) {
-    return !requireAllowlist
+    return false
   }
 
   const normalizedEmail = email.toLowerCase()

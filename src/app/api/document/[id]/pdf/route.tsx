@@ -137,13 +137,13 @@ export async function GET(
     // ---------- TITLE ----------
     let y = height - headerH - 28
 
-    drawTextCenter(page, 'DEMO ISSUE', width / 2, y, {
+    drawTextCenter(page, 'DELIVERY CHALLAN', width / 2, y, {
       font: fontBold,
       size: 18,
       color: COLORS.navy,
     })
     y -= 16
-    drawTextCenter(page, '(GOODS SENT FOR DEMO ON RETURNABLE BASIS)', width / 2, y, {
+    drawTextCenter(page, 'DEMO ISSUE (GOODS SENT FOR DEMO ON RETURNABLE BASIS)', width / 2, y, {
       font,
       size: 9.5,
       color: COLORS.slate,
@@ -325,7 +325,7 @@ export async function GET(
         if (y - rowH < bottomLimit) {
           page = addDecoratedPage()
           y = height - headerH - 34
-          drawTextCenter(page, 'DEMO ISSUE - CONTINUED', width / 2, y, {
+          drawTextCenter(page, 'DELIVERY CHALLAN - CONTINUED', width / 2, y, {
             font: fontBold,
             size: 14,
             color: COLORS.navy,

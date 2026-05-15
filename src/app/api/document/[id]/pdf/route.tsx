@@ -59,7 +59,6 @@ export async function GET(
 
     // Create PDF
     const pdfDoc = await PDFDocument.create()
-    const page = pdfDoc.addPage([595, 842]) // A4
     const font = await pdfDoc.embedFont(StandardFonts.Helvetica)
     const fontBold = await pdfDoc.embedFont(StandardFonts.HelveticaBold)
     const fontItalic = await pdfDoc.embedFont(StandardFonts.HelveticaOblique)
@@ -89,24 +88,51 @@ export async function GET(
       // If logo missing, we just skip drawing it (PDF still generates)
     }
 
-    const { width, height } = page.getSize()
+    const width = 595
+    const height = 842
     const M = 40
     const CONTENT_W = width - 2 * M
-
-    // ---------- HEADER BAR ----------
     const headerH = 70
-    drawRect(page, 0, height - headerH, width, headerH, COLORS.navy)
+    const footerH = 32
+    const bottomLimit = footerH + 26
+    let pageNumber = 0
 
-    if (logoImage && logoDims) {
-      const padX = M
-      const yLogo = height - headerH + (headerH - logoDims.height) / 2
-      page.drawImage(logoImage, {
-        x: padX,
-        y: yLogo,
-        width: logoDims.width,
-        height: logoDims.height,
+    const addDecoratedPage = () => {
+      const nextPage = pdfDoc.addPage([width, height]) // A4
+      pageNumber += 1
+
+      // ---------- HEADER BAR ----------
+      drawRect(nextPage, 0, height - headerH, width, headerH, COLORS.navy)
+
+      if (logoImage && logoDims) {
+        const padX = M
+        const yLogo = height - headerH + (headerH - logoDims.height) / 2
+        nextPage.drawImage(logoImage, {
+          x: padX,
+          y: yLogo,
+          width: logoDims.width,
+          height: logoDims.height,
+        })
+      }
+
+      // ---------- FOOTER BAR ----------
+      drawRect(nextPage, 0, 0, width, footerH, COLORS.navy)
+      drawText(nextPage, `Email: ${ARSH_TRADERS_EMAIL} | Website: ${ARSH_TRADERS_WEBSITE}`, M, 12, {
+        font,
+        size: 7,
+        color: COLORS.white,
       })
+      drawTextRight(nextPage, ARSH_TRADERS_ADDRESS, width - M, 12, { font, size: 7, color: COLORS.white })
+      drawTextRight(nextPage, `Page ${pageNumber}`, width - M, footerH + 8, {
+        font,
+        size: 7,
+        color: COLORS.slate,
+      })
+
+      return nextPage
     }
+
+    let page = addDecoratedPage()
 
     // ---------- TITLE ----------
     let y = height - headerH - 28
@@ -165,30 +191,29 @@ export async function GET(
 
     y -= 28
 
-    // ---------- SHIP FROM / SHIP TO CARDS ----------
+    // ---------- CONSIGNOR / SHIP FROM / SHIP TO CARDS ----------
     const cardGap = 15
     const cardW = (CONTENT_W - cardGap) / 2
     const cardH = 92
+    const shipFromName = doc.source?.name || 'N/A'
+    const shipFromIsConsignor = shipFromName === ARSH_TRADERS_NAME
+
+    const consignorLines = [
+      ARSH_TRADERS_ADDRESS,
+      `GSTIN: ${ARSH_TRADERS_GSTIN}`,
+      `Email: ${ARSH_TRADERS_EMAIL}`,
+    ]
+    const shipFromLines = locationLines(doc.source)
+    const shipToLines = locationLines(doc.destination)
 
     drawCard(page, {
       x: M,
       y: y - cardH,
       w: cardW,
       h: cardH,
-      title: 'SHIP FROM (CONSIGNOR)',
-      name: doc.source?.name || 'N/A',
-      lines:
-        (doc.source?.name || '') === ARSH_TRADERS_NAME
-          ? [
-              ARSH_TRADERS_ADDRESS,
-              `GSTIN: ${ARSH_TRADERS_GSTIN}`,
-              `Email: ${ARSH_TRADERS_EMAIL}`,
-            ]
-          : compactLines([
-              doc.source?.address ? doc.source.address : '',
-              doc.source?.gstin ? `GSTIN: ${doc.source.gstin}` : '',
-              doc.source?.contact ? `Contact: ${doc.source.contact}` : '',
-            ]),
+      title: 'CONSIGNOR',
+      name: ARSH_TRADERS_NAME,
+      lines: consignorLines,
       font,
       fontBold,
       colors: COLORS,
@@ -199,19 +224,34 @@ export async function GET(
       y: y - cardH,
       w: cardW,
       h: cardH,
-      title: 'SHIP TO (CONSIGNEE)',
+      title: 'SHIP TO',
       name: doc.destination?.name || 'N/A',
-      lines: compactLines([
-        doc.destination?.address ? doc.destination.address : '',
-        doc.destination?.gstin ? `GSTIN: ${doc.destination.gstin}` : '',
-        doc.destination?.contact ? `Contact: ${doc.destination.contact}` : '',
-      ]),
+      lines: shipToLines,
       font,
       fontBold,
       colors: COLORS,
     })
 
-    y -= cardH + 18
+    y -= cardH + 12
+
+    if (!shipFromIsConsignor) {
+      const shipFromCardH = 70
+      drawCard(page, {
+        x: M,
+        y: y - shipFromCardH,
+        w: CONTENT_W,
+        h: shipFromCardH,
+        title: 'SHIP FROM (IF DIFFERENT)',
+        name: shipFromName,
+        lines: shipFromLines,
+        font,
+        fontBold,
+        colors: COLORS,
+      })
+      y -= shipFromCardH + 18
+    } else {
+      y -= 6
+    }
 
     // ---------- ITEMS TABLE ----------
     const tableX = M
@@ -239,18 +279,22 @@ export async function GET(
     }
 
     const th = 22
-    drawRect(page, tableX, y - th, tableW, th, COLORS.navy)
+    const drawTableHeader = (targetPage: PDFPage, currentY: number) => {
+      drawRect(targetPage, tableX, currentY - th, tableW, th, COLORS.navy)
 
-    const headerY = y - 15
-    drawText(page, 'SR.', X.sr + 8, headerY, { font: fontBold, size: 8.5, color: COLORS.white })
-    drawText(page, 'MATERIAL CODE', X.code + 8, headerY, { font: fontBold, size: 8.5, color: COLORS.white })
-    drawText(page, 'DESCRIPTION', X.desc + 8, headerY, { font: fontBold, size: 8.5, color: COLORS.white })
-    drawText(page, 'HSN', X.hsn + 8, headerY, { font: fontBold, size: 8.5, color: COLORS.white })
-    drawText(page, 'QTY', X.qty + 10, headerY, { font: fontBold, size: 8.5, color: COLORS.white })
-    drawText(page, 'RATE (1)', X.rate + 8, headerY, { font: fontBold, size: 8.5, color: COLORS.white })
-    drawText(page, 'AMOUNT (1)', X.amt + 6, headerY, { font: fontBold, size: 8.5, color: COLORS.white })
+      const headerY = currentY - 15
+      drawText(targetPage, 'SR.', X.sr + 8, headerY, { font: fontBold, size: 8.5, color: COLORS.white })
+      drawText(targetPage, 'MATERIAL CODE', X.code + 8, headerY, { font: fontBold, size: 8.5, color: COLORS.white })
+      drawText(targetPage, 'DESCRIPTION', X.desc + 8, headerY, { font: fontBold, size: 8.5, color: COLORS.white })
+      drawText(targetPage, 'HSN', X.hsn + 8, headerY, { font: fontBold, size: 8.5, color: COLORS.white })
+      drawText(targetPage, 'QTY', X.qty + 10, headerY, { font: fontBold, size: 8.5, color: COLORS.white })
+      drawText(targetPage, 'RATE (1)', X.rate + 8, headerY, { font: fontBold, size: 8.5, color: COLORS.white })
+      drawText(targetPage, 'AMOUNT (1)', X.amt + 6, headerY, { font: fontBold, size: 8.5, color: COLORS.white })
 
-    y -= th
+      return currentY - th
+    }
+
+    y = drawTableHeader(page, y)
 
     let totalQty = 0
     let totalAmount = 0
@@ -277,6 +321,18 @@ export async function GET(
         // Wrap description to max 2 lines like the “new system”
         const descLines = wrapText(String(line.material_description || ''), font, 9, COL.desc - 16, 2)
         const rowH = Math.max(baseRowH, rowPadY * 2 + descLines.length * 10)
+
+        if (y - rowH < bottomLimit) {
+          page = addDecoratedPage()
+          y = height - headerH - 34
+          drawTextCenter(page, 'DEMO ISSUE - CONTINUED', width / 2, y, {
+            font: fontBold,
+            size: 14,
+            color: COLORS.navy,
+          })
+          y -= 24
+          y = drawTableHeader(page, y)
+        }
 
         // Row background (very subtle)
         if (i % 2 === 1) drawRect(page, tableX, y - rowH, tableW, rowH, COLORS.rowAlt)
@@ -323,6 +379,15 @@ export async function GET(
         y -= rowH
       }
     }
+
+    const ensureSpace = (neededHeight: number) => {
+      if (y - neededHeight >= bottomLimit) return
+
+      page = addDecoratedPage()
+      y = height - headerH - 34
+    }
+
+    ensureSpace(300)
 
     // TOTAL row (like new system)
     const totalRowH = 26
@@ -400,17 +465,6 @@ export async function GET(
       color: COLORS.slate,
     })
 
-    // ---------- FOOTER BAR ----------
-    const footerH = 32
-    drawRect(page, 0, 0, width, footerH, COLORS.navy)
-
-    drawText(page, `Email: ${ARSH_TRADERS_EMAIL} | Website: ${ARSH_TRADERS_WEBSITE}`, M, 12, {
-      font,
-      size: 7,
-      color: COLORS.white,
-    })
-    drawTextRight(page, ARSH_TRADERS_ADDRESS, width - M, 12, { font, size: 7, color: COLORS.white })
-
     const pdfBytes = await pdfDoc.save()
 
     return new NextResponse(Buffer.from(pdfBytes), {
@@ -445,6 +499,14 @@ function compactLines(lines: string[]) {
     .map(s => String(s || '').trim())
     .filter(Boolean)
     .map(s => (s.length > 70 ? s.slice(0, 68) + '..' : s))
+}
+
+function locationLines(location: any) {
+  return compactLines([
+    location?.address ? location.address : '',
+    location?.gstin ? `GSTIN: ${location.gstin}` : '',
+    location?.contact ? `Contact: ${location.contact}` : '',
+  ])
 }
 
 function drawRect(page: PDFPage, x: number, y: number, w: number, h: number, color: any) {

@@ -25,7 +25,7 @@ export interface DocumentLine {
 }
 
 /**
- * Determine document type based on destination location kind
+ * Determine document type based on the physical ship-to location kind.
  * - warehouse: inbound (items coming back to warehouse)
  * - company: return (items returned to supplier/company)
  * - partner/hospital: outbound (items going out)
@@ -126,11 +126,11 @@ export async function createDocument(
     const supabase = await createServerSupabaseAdmin()
     const config = getAppConfig()
 
-    // Validate that source and dest are different
+    // Validate that ship-from and ship-to are different.
     if (header.source_location_id === header.dest_location_id) {
       return {
         success: false,
-        message: 'Source and destination locations must be different',
+        message: 'Ship-from and ship-to locations must be different',
       }
     }
 
@@ -220,7 +220,7 @@ export async function createDocument(
     if (!sourceLocation || !destLocation) {
       return {
         success: false,
-        message: 'Source or destination location was not found',
+        message: 'Ship-from or ship-to location was not found',
       }
     }
 
@@ -257,7 +257,7 @@ export async function createDocument(
     console.log('[createDocument] Source location:', sourceLocation)
     console.log('[createDocument] Dest location:', destLocation)
 
-    // Auto-determine document type based on destination
+    // Auto-determine document type based on the physical ship-to location.
     const docType = determineDocType(destLocation?.kind || '')
     console.log('[createDocument] Determined docType:', docType)
 

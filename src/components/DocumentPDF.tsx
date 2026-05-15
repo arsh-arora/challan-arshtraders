@@ -68,6 +68,8 @@ interface DocumentPDFProps {
   lines: any[]
 }
 
+const DEFAULT_CONSIGNOR_NAME = 'Arsh Traders'
+
 export default function DocumentPDF({ doc, lines }: DocumentPDFProps) {
   const typeSuffix =
     doc.doc_type === 'in' ? 'Inbound' : doc.doc_type === 'out' ? 'Outbound' : 'Return'
@@ -101,14 +103,19 @@ export default function DocumentPDF({ doc, lines }: DocumentPDFProps) {
           </View>
 
           <View style={styles.row}>
-            <Text style={styles.label}>Source Location:</Text>
+            <Text style={styles.label}>Consignor:</Text>
+            <Text style={styles.value}>{DEFAULT_CONSIGNOR_NAME}</Text>
+          </View>
+
+          <View style={styles.row}>
+            <Text style={styles.label}>Ship From:</Text>
             <Text style={styles.value}>
               {doc.source.name} ({doc.source.kind})
             </Text>
           </View>
 
           <View style={styles.row}>
-            <Text style={styles.label}>Destination Location:</Text>
+            <Text style={styles.label}>Ship To:</Text>
             <Text style={styles.value}>
               {doc.destination.name} ({doc.destination.kind})
             </Text>

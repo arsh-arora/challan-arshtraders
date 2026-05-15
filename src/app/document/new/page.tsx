@@ -20,18 +20,20 @@ interface LineItem extends DocumentLine {
   delivery_number?: string
 }
 
+const DEFAULT_CONSIGNOR_NAME = 'Arsh Traders'
+
 export default function NewDocumentPage() {
   const router = useRouter()
   const [locations, setLocations] = useState<Location[]>([])
   const [loading, setLoading] = useState(false)
   const [showModal, setShowModal] = useState(false)
 
-  // Source location state
+  // Ship-from location state
   const [sourceMode, setSourceMode] = useState<'select' | 'manual'>('select')
   const [manualSourceName, setManualSourceName] = useState('')
   const [manualSourceKind, setManualSourceKind] = useState<'hospital' | 'partner' | 'company'>('hospital')
 
-  // Destination location state
+  // Ship-to location state
   const [destMode, setDestMode] = useState<'select' | 'manual'>('select')
   const [manualDestName, setManualDestName] = useState('')
   const [manualDestKind, setManualDestKind] = useState<'hospital' | 'partner' | 'company'>('hospital')
@@ -64,14 +66,14 @@ export default function NewDocumentPage() {
   const loadLocations = async () => {
     const data = await getLocations()
     setLocations(data)
-    // Auto-select Arsh Traders as source if available
-    const arshTraders = data.find(loc => loc.name === 'Arsh Traders')
+    // Auto-select Arsh Traders as the default ship-from location if available.
+    const arshTraders = data.find(loc => loc.name === DEFAULT_CONSIGNOR_NAME)
     if (arshTraders) {
       setHeader(prev => ({ ...prev, source_location_id: arshTraders.id }))
     }
   }
 
-  // Get the predicted document type based on destination
+  // Get the predicted document type based on the physical ship-to location.
   const getPredictedDocType = (): { type: string; color: string; label: string } | null => {
     let destKind: string | null = null
 
@@ -112,10 +114,10 @@ export default function NewDocumentPage() {
     let sourceId = header.source_location_id
     let destId = header.dest_location_id
 
-    // Handle manual source location
+    // Handle manual ship-from location
     if (sourceMode === 'manual') {
       if (!manualSourceName.trim()) {
-        setError('Please enter a source location name')
+        setError('Please enter a ship-from location name')
         return
       }
       const result = await createLocation({
@@ -123,16 +125,16 @@ export default function NewDocumentPage() {
         kind: manualSourceKind,
       })
       if (!result.success || !result.locationId) {
-        setError(result.message || 'Failed to create source location')
+        setError(result.message || 'Failed to create ship-from location')
         return
       }
       sourceId = result.locationId
     }
 
-    // Handle manual destination location
+    // Handle manual ship-to location
     if (destMode === 'manual') {
       if (!manualDestName.trim()) {
-        setError('Please enter a destination location name')
+        setError('Please enter a ship-to location name')
         return
       }
       const result = await createLocation({
@@ -143,7 +145,7 @@ export default function NewDocumentPage() {
         contact: manualDestContact.trim() || undefined,
       })
       if (!result.success || !result.locationId) {
-        setError(result.message || 'Failed to create destination location')
+        setError(result.message || 'Failed to create ship-to location')
         return
       }
       destId = result.locationId
@@ -157,7 +159,7 @@ export default function NewDocumentPage() {
     }
 
     if (!sourceId || !destId) {
-      setError('Please select or enter source and destination locations')
+      setError('Please select or enter ship-from and ship-to locations')
       return
     }
 
@@ -224,10 +226,20 @@ export default function NewDocumentPage() {
               />
             </div>
 
-            {/* Source Location */}
+            {/* Consignor */}
             <div className="md:col-span-2">
               <label className="block text-sm font-medium text-gray-700 mb-1">
-                Source Location *
+                Consignor
+              </label>
+              <div className="w-full px-3 py-2 border border-gray-200 rounded-md bg-gray-50 text-gray-900">
+                {DEFAULT_CONSIGNOR_NAME}
+              </div>
+            </div>
+
+            {/* Ship From */}
+            <div className="md:col-span-2">
+              <label className="block text-sm font-medium text-gray-700 mb-1">
+                Ship From *
               </label>
               <div className="flex gap-2 mb-2">
                 <button
@@ -251,7 +263,7 @@ export default function NewDocumentPage() {
                   onChange={(e) => setHeader({ ...header, source_location_id: e.target.value })}
                   className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500"
                 >
-                  <option value="">Select source...</option>
+                  <option value="">Select ship from...</option>
                   {locations.map((loc) => (
                     <option key={loc.id} value={loc.id}>
                       {loc.name} [{loc.kind}]
@@ -264,7 +276,7 @@ export default function NewDocumentPage() {
                     type="text"
                     value={manualSourceName}
                     onChange={(e) => setManualSourceName(e.target.value)}
-                    placeholder="Enter location name..."
+                    placeholder="Enter ship-from location name..."
                     className="flex-1 px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500"
                   />
                   <select
@@ -280,10 +292,10 @@ export default function NewDocumentPage() {
               )}
             </div>
 
-            {/* Dest Location */}
+            {/* Ship To */}
             <div className="md:col-span-2">
               <label className="block text-sm font-medium text-gray-700 mb-1">
-                Destination Location *
+                Ship To *
               </label>
               <div className="flex gap-2 mb-2">
                 <button
@@ -317,7 +329,7 @@ export default function NewDocumentPage() {
                     }}
                     className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500"
                   >
-                    <option value="">Select destination...</option>
+                    <option value="">Select ship to...</option>
                     {locations.map((loc) => (
                       <option key={loc.id} value={loc.id}>
                         {loc.name} [{loc.kind}]
@@ -387,7 +399,7 @@ export default function NewDocumentPage() {
                       type="text"
                       value={manualDestName}
                       onChange={(e) => setManualDestName(e.target.value)}
-                      placeholder="Enter location name..."
+                      placeholder="Enter ship-to location name..."
                       className="flex-1 px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500"
                     />
                     <select
@@ -434,7 +446,7 @@ export default function NewDocumentPage() {
                   Items sent to a Company are terminal - they will no longer be outstanding.
                 </p>
               )}
-              {/* Show predicted document type based on destination */}
+              {/* Show predicted document type based on the ship-to location */}
               {predictedDocType && (
                 <div className="mt-2 flex items-center gap-2">
                   <span className="text-sm text-gray-600">Document type:</span>

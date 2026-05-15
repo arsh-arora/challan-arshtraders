@@ -1,10 +1,12 @@
 import { createServerSupabaseAdmin } from '@/lib/supabase/server'
+import { getAppConfig } from '@/lib/config'
 import { notFound } from 'next/navigation'
 import DownloadButtons from '@/components/DownloadButtons'
 
 export default async function DocumentPage({ params }: { params: Promise<{ id: string }> }) {
   const { id } = await params
   const supabase = await createServerSupabaseAdmin()
+  const config = getAppConfig()
 
   // Fetch document with location details
   const { data: doc, error } = await supabase
@@ -63,14 +65,19 @@ export default async function DocumentPage({ params }: { params: Promise<{ id: s
           </div>
 
           <div>
-            <span className="text-sm font-medium text-gray-500">Source Location:</span>
+            <span className="text-sm font-medium text-gray-500">Consignor:</span>
+            <p className="text-gray-900">{config.business.name}</p>
+          </div>
+
+          <div>
+            <span className="text-sm font-medium text-gray-500">Ship From:</span>
             <p className="text-gray-900">
               {(doc.source as any).name} <span className="text-gray-500 text-sm">({(doc.source as any).kind})</span>
             </p>
           </div>
 
           <div>
-            <span className="text-sm font-medium text-gray-500">Destination Location:</span>
+            <span className="text-sm font-medium text-gray-500">Ship To:</span>
             <p className="text-gray-900">
               {(doc.destination as any).name} <span className="text-gray-500 text-sm">({(doc.destination as any).kind})</span>
             </p>

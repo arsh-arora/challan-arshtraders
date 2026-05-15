@@ -6,6 +6,7 @@ import { isAuthorizationError, requireAllowedUser } from '@/lib/auth'
 import ExcelJS from 'exceljs'
 
 // Fixed Arsh Traders details - non-negotiable
+const ARSH_TRADERS_NAME = 'Arsh Traders'
 const ARSH_TRADERS_ADDRESS = 'Plot No. 119-2A, Saket Nagar, Bhopal - 462024 (M.P.)'
 const ARSH_TRADERS_GSTIN = '23AECPC0996H2ZR'
 const ARSH_TRADERS_EMAIL = 'director@arshtraders.com'
@@ -71,11 +72,10 @@ export async function GET(
     wsData.push(['', '', '', '', 'GOODS MOVEMENT', '', '', '', '', '', '', '', '', '', '', ''])
     wsData.push(['', '', '', '', '(GOODS SENT ON RETURNABLE BASIS)', '', '', '', '', '', '', '', '', '', '', ''])
 
-    // Determine source details - use fixed values for Arsh Traders
-    const isSourceArshTraders = doc.source?.name === 'Arsh Traders'
-    const sourceAddress = isSourceArshTraders ? ARSH_TRADERS_ADDRESS : (doc.source?.address || '')
-    const sourceGstin = isSourceArshTraders ? ARSH_TRADERS_GSTIN : (doc.source?.gstin || '')
-    const sourceContact = isSourceArshTraders ? ARSH_TRADERS_EMAIL : (doc.source?.contact || '')
+    // Ship-from details are only shown separately when they differ from the fixed consignor.
+    const hasDifferentShipFrom = Boolean(doc.source?.name && doc.source.name !== ARSH_TRADERS_NAME)
+    const shipFromLine = hasDifferentShipFrom ? `Ship From: ${doc.source?.name}` : ''
+    const shipFromAddress = hasDifferentShipFrom ? (doc.source?.address || '') : ''
 
     // Destination details from database
     const destAddress = doc.destination?.address || ''
@@ -83,28 +83,28 @@ export async function GET(
     const destContact = doc.destination?.contact || ''
 
     // Row 4: Consignor header + Delivery Challan no
-    wsData.push(['', 'Name of Consignor (Ship from)', '', '', '', '', '', '', '', '', 'Delivery Challan no.', '', '', doc.doc_no, '', ''])
+    wsData.push(['', 'Name of Consignor', '', '', '', '', '', '', '', '', 'Delivery Challan no.', '', '', doc.doc_no, '', ''])
 
     // Row 5: Consignor name
-    wsData.push(['', doc.source?.name || '', '', '', '', '', '', '', '', '', '', '', '', '', '', ''])
+    wsData.push(['', ARSH_TRADERS_NAME, '', '', '', '', '', '', '', '', '', '', '', '', '', ''])
 
     // Row 6: Address
-    wsData.push(['', sourceAddress, '', '', '', '', '', '', '', '', '', '', '', '', '', ''])
+    wsData.push(['', ARSH_TRADERS_ADDRESS, '', '', '', '', '', '', '', '', '', '', '', '', '', ''])
 
     // Row 7: More address + Delivery Challan date
     wsData.push(['', '', '', '', '', '', '', '', '', '', 'Delivery Challan date', '', '', formatDate(doc.doc_date), '', ''])
 
-    // Row 8: Empty
-    wsData.push(['', '', '', '', '', '', '', '', '', '', '', '', '', '', '', ''])
+    // Row 8: Ship From when different from consignor
+    wsData.push(['', shipFromLine, '', '', '', '', '', '', '', '', '', '', '', '', '', ''])
 
-    // Row 9: Contact + KSI Challan No
-    wsData.push(['', '', '', '', '', '', '', '', '', '', 'KSI CHALLAN NO.', '', '', ksiChallanNos, '', ''])
+    // Row 9: Ship From address + KSI Challan No
+    wsData.push(['', shipFromAddress, '', '', '', '', '', '', '', '', 'KSI CHALLAN NO.', '', '', ksiChallanNos, '', ''])
 
     // Row 10: Contact
-    wsData.push(['', `Contact: ${sourceContact}`, '', '', '', '', '', '', '', '', '', '', '', '', '', ''])
+    wsData.push(['', `Contact: ${ARSH_TRADERS_EMAIL}`, '', '', '', '', '', '', '', '', '', '', '', '', '', ''])
 
     // Row 11: GSTIN
-    wsData.push(['', `GSTIN: ${sourceGstin}`, '', '', '', '', '', '', '', '', '', '', '', '', '', ''])
+    wsData.push(['', `GSTIN: ${ARSH_TRADERS_GSTIN}`, '', '', '', '', '', '', '', '', '', '', '', '', '', ''])
 
     // Row 12: Consignee header + KSI Challan Date
     wsData.push(['', 'Name of Consignee (Ship To)', '', '', '', '', '', '', '', '', 'KSI CHALLAN DATE', '', '', ksiChallanDates, '', ''])

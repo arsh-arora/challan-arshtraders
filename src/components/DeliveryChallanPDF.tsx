@@ -6,6 +6,7 @@ const BRAND_NAVY = '#1e3a5f'
 const BRAND_LIGHT = '#f8fafc'
 
 // Fixed Arsh Traders details - non-negotiable
+const ARSH_TRADERS_NAME = 'Arsh Traders'
 const ARSH_TRADERS_ADDRESS = 'Plot No. 119-2A, Saket Nagar, Bhopal - 462024 (M.P.)'
 const ARSH_TRADERS_GSTIN = '23AECPC0996H2ZR'
 const ARSH_TRADERS_EMAIL = 'director@arshtraders.com'
@@ -404,40 +405,29 @@ export default function DeliveryChallanPDF({ doc, lines }: DeliveryChallanPDFPro
             )}
           </View>
 
-          {/* Consignor / Consignee Details */}
+          {/* Consignor / Shipping Details */}
           <View style={styles.detailsContainer}>
-            {/* Consignor (Ship From) */}
+            {/* Consignor */}
             <View style={styles.detailsColumn}>
               <View style={styles.detailsBox}>
-                <Text style={styles.detailsLabel}>Ship From (Consignor)</Text>
-                <Text style={styles.detailsValue}>{safeText(doc.source_location?.name)}</Text>
-                {/* Use fixed details for Arsh Traders, otherwise use stored details */}
-                {doc.source_location?.name === 'Arsh Traders' ? (
+                <Text style={styles.detailsLabel}>Consignor</Text>
+                <Text style={styles.detailsValue}>{ARSH_TRADERS_NAME}</Text>
+                <Text style={styles.detailsSubValue}>{ARSH_TRADERS_ADDRESS}</Text>
+                <Text style={styles.detailsSubValue}>GSTIN: {ARSH_TRADERS_GSTIN}</Text>
+                <Text style={styles.detailsSubValue}>Email: {ARSH_TRADERS_EMAIL}</Text>
+                {doc.source_location?.name && doc.source_location.name !== ARSH_TRADERS_NAME && (
                   <>
-                    <Text style={styles.detailsSubValue}>{ARSH_TRADERS_ADDRESS}</Text>
-                    <Text style={styles.detailsSubValue}>GSTIN: {ARSH_TRADERS_GSTIN}</Text>
-                    <Text style={styles.detailsSubValue}>Email: {ARSH_TRADERS_EMAIL}</Text>
-                  </>
-                ) : (
-                  <>
-                    {doc.source_location?.address && (
-                      <Text style={styles.detailsSubValue}>{safeText(doc.source_location.address)}</Text>
-                    )}
-                    {doc.source_location?.gstin && (
-                      <Text style={styles.detailsSubValue}>GSTIN: {safeText(doc.source_location.gstin)}</Text>
-                    )}
-                    {doc.source_location?.contact && (
-                      <Text style={styles.detailsSubValue}>Contact: {safeText(doc.source_location.contact)}</Text>
-                    )}
+                    <Text style={styles.detailsSubValue}>Ship From: {safeText(doc.source_location?.name)}</Text>
+                    {doc.source_location?.address && <Text style={styles.detailsSubValue}>{safeText(doc.source_location.address)}</Text>}
                   </>
                 )}
               </View>
             </View>
 
-            {/* Consignee (Ship To) */}
+            {/* Ship To */}
             <View style={styles.detailsColumn}>
               <View style={styles.detailsBox}>
-                <Text style={styles.detailsLabel}>Ship To (Consignee)</Text>
+                <Text style={styles.detailsLabel}>Ship To</Text>
                 <Text style={styles.detailsValue}>{safeText(doc.dest_location?.name)}</Text>
                 {doc.dest_location?.address && (
                   <Text style={styles.detailsSubValue}>{safeText(doc.dest_location.address)}</Text>

@@ -35,6 +35,19 @@ export default function Home() {
         </a>
 
         <a
+          href="/document"
+          className="bg-white p-6 rounded-lg shadow hover:shadow-lg transition-shadow border-2 border-transparent hover:border-sky-500"
+        >
+          <div className="flex items-center mb-3">
+            <svg className="h-8 w-8 text-sky-600" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M8 7h8M8 11h8m-8 4h5m-7 6h10a2 2 0 002-2V5a2 2 0 00-2-2H8.414a2 2 0 00-1.414.586L4.586 6A2 2 0 004 7.414V19a2 2 0 002 2z" />
+            </svg>
+          </div>
+          <h3 className="text-lg font-semibold text-gray-900 mb-1">Documents</h3>
+          <p className="text-sm text-gray-600">View previous delivery challans and movement documents</p>
+        </a>
+
+        <a
           href="/inventory"
           className="bg-white p-6 rounded-lg shadow hover:shadow-lg transition-shadow border-2 border-transparent hover:border-purple-500"
         >
@@ -81,6 +94,7 @@ export default function Home() {
           <li>Upload an Excel challan file to import items and create inventory</li>
           <li>View your inventory to see all items at different locations</li>
           <li>Create documents to move items between locations</li>
+          <li>Open the documents page to review previous delivery challans</li>
           <li>Track outstanding items that need to be returned to suppliers</li>
           <li>Use tickets to track specific sub-batches of items</li>
         </ol>

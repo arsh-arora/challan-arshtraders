@@ -53,6 +53,9 @@ export default function NavBar() {
             <a href="/document/new" className="text-gray-700 hover:text-blue-600 hover:bg-blue-50 px-3 py-2 rounded-md text-sm font-medium transition-colors">
               Create Document
             </a>
+            <a href="/document" className="text-gray-700 hover:text-blue-600 hover:bg-blue-50 px-3 py-2 rounded-md text-sm font-medium transition-colors">
+              Documents
+            </a>
             <a href="/inventory" className="text-gray-700 hover:text-blue-600 hover:bg-blue-50 px-3 py-2 rounded-md text-sm font-medium transition-colors">
               Inventory
             </a>
@@ -148,6 +151,9 @@ export default function NavBar() {
             </a>
             <a href="/document/new" className="block text-gray-700 hover:bg-blue-50 hover:text-blue-600 px-3 py-2 rounded-md text-base font-medium">
               Create Document
+            </a>
+            <a href="/document" className="block text-gray-700 hover:bg-blue-50 hover:text-blue-600 px-3 py-2 rounded-md text-base font-medium">
+              Documents
             </a>
             <a href="/inventory" className="block text-gray-700 hover:bg-blue-50 hover:text-blue-600 px-3 py-2 rounded-md text-base font-medium">
               Inventory

@@ -18,6 +18,7 @@ export interface Item {
 export interface CompanyChallan {
   id: string
   supplier_name: string
+  terminal_destination_name: string
   delivery_number: string
   delivery_date: string | null
   raw_doc_ref: string | null

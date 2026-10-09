@@ -1,6 +1,7 @@
 'use client'
 
 import { useState } from 'react'
+import { downloadFile } from '@/lib/download'
 
 interface DownloadButtonsProps {
   docId: string
@@ -14,24 +15,14 @@ export default function DownloadButtons({ docId, docNo }: DownloadButtonsProps) 
   const handleDownloadPdf = async () => {
     setLoadingPdf(true)
     try {
-      const response = await fetch(`/api/document/${docId}/pdf`)
-
-      if (!response.ok) {
-        throw new Error('Failed to generate PDF')
-      }
-
-      const blob = await response.blob()
-      const url = window.URL.createObjectURL(blob)
-      const a = document.createElement('a')
-      a.href = url
-      a.download = `${docNo}.pdf`
-      document.body.appendChild(a)
-      a.click()
-      window.URL.revokeObjectURL(url)
-      document.body.removeChild(a)
+      await downloadFile({
+        url: `/api/document/${docId}/pdf`,
+        filename: `${docNo}.pdf`,
+        contentType: 'application/pdf',
+      })
     } catch (error) {
       console.error('Download error:', error)
-      alert('Failed to download PDF')
+      alert(error instanceof Error ? error.message : 'Failed to download PDF')
     } finally {
       setLoadingPdf(false)
     }
@@ -40,24 +31,14 @@ export default function DownloadButtons({ docId, docNo }: DownloadButtonsProps) 
   const handleDownloadXls = async () => {
     setLoadingXls(true)
     try {
-      const response = await fetch(`/api/document/${docId}/xls`)
-
-      if (!response.ok) {
-        throw new Error('Failed to generate Excel file')
-      }
-
-      const blob = await response.blob()
-      const url = window.URL.createObjectURL(blob)
-      const a = document.createElement('a')
-      a.href = url
-      a.download = `${docNo}.xlsx`
-      document.body.appendChild(a)
-      a.click()
-      window.URL.revokeObjectURL(url)
-      document.body.removeChild(a)
+      await downloadFile({
+        url: `/api/document/${docId}/xls`,
+        filename: `${docNo}.xlsx`,
+        contentType: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+      })
     } catch (error) {
       console.error('Download error:', error)
-      alert('Failed to download Excel file')
+      alert(error instanceof Error ? error.message : 'Failed to download Excel file')
     } finally {
       setLoadingXls(false)
     }

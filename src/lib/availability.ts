@@ -10,6 +10,7 @@ export interface AvailableItem {
   available_qty: number
   unit_cost: number | null
   supplier_name: string
+  terminal_destination_name: string
 }
 
 /**
@@ -133,7 +134,7 @@ export async function getAvailableInventory(
         id,
         hsn_code,
         unit_cost,
-        company_challans!inner(delivery_number, delivery_date, supplier_name),
+        company_challans!inner(delivery_number, delivery_date, supplier_name, terminal_destination_name),
         items!inner(material_code, description)
       `
       )
@@ -157,6 +158,8 @@ export async function getAvailableInventory(
         available_qty: available,
         unit_cost: lineData.unit_cost,
         supplier_name: (lineData.company_challans as any).supplier_name,
+        terminal_destination_name: (lineData.company_challans as any)
+          .terminal_destination_name,
       })
     }
   }

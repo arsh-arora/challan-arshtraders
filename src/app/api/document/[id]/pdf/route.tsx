@@ -7,13 +7,6 @@ import { isAuthorizationError, requireAllowedUser } from '@/lib/auth'
 import { readFile } from 'fs/promises'
 import { join } from 'path'
 
-// Fixed Arsh Traders details - this is an internal Arsh Traders tool.
-const ARSH_TRADERS_NAME = 'Arsh Traders'
-const ARSH_TRADERS_ADDRESS = 'Plot No. 119-2A, Saket Nagar, Bhopal - 462024 (M.P.)'
-const ARSH_TRADERS_GSTIN = '23AECPC0996H2ZR'
-const ARSH_TRADERS_EMAIL = 'director@arshtraders.com'
-const ARSH_TRADERS_WEBSITE = 'arshtraders.com'
-
 export async function GET(
   _request: NextRequest,
   context: { params: Promise<{ id: string }> }
@@ -39,12 +32,20 @@ export async function GET(
       .eq('id', id)
       .single()
 
-    if (docError || !doc) {
+    if (docError && docError.code !== 'PGRST116') {
+      console.error('PDF document query failed:', docError)
+      return NextResponse.json(
+        { error: 'Unable to load the document. Please try again later.' },
+        { status: 503 }
+      )
+    }
+
+    if (!doc) {
       return NextResponse.json({ error: 'Document not found' }, { status: 404 })
     }
 
     // Fetch lines
-    const { data: lines } = await supabase
+    const { data: lines, error: linesError } = await supabase
       .from('doc_lines')
       .select(
         `
@@ -54,6 +55,14 @@ export async function GET(
       )
       .eq('doc_id', id)
       .order('material_code')
+
+    if (linesError) {
+      console.error('PDF line items query failed:', linesError)
+      return NextResponse.json(
+        { error: 'Unable to load the document items. Please try again later.' },
+        { status: 503 }
+      )
+    }
 
     const items = lines || []
 
@@ -117,12 +126,12 @@ export async function GET(
 
       // ---------- FOOTER BAR ----------
       drawRect(nextPage, 0, 0, width, footerH, COLORS.navy)
-      drawText(nextPage, `Email: ${ARSH_TRADERS_EMAIL} | Website: ${ARSH_TRADERS_WEBSITE}`, M, 12, {
+      drawText(nextPage, `Email: ${config.business.email} | Website: ${config.business.website}`, M, 12, {
         font,
         size: 7,
         color: COLORS.white,
       })
-      drawTextRight(nextPage, ARSH_TRADERS_ADDRESS, width - M, 12, { font, size: 7, color: COLORS.white })
+      drawTextRight(nextPage, config.business.address, width - M, 12, { font, size: 7, color: COLORS.white })
       drawTextRight(nextPage, `Page ${pageNumber}`, width - M, footerH + 8, {
         font,
         size: 7,
@@ -196,12 +205,12 @@ export async function GET(
     const cardW = (CONTENT_W - cardGap) / 2
     const cardH = 92
     const shipFromName = doc.source?.name || 'N/A'
-    const shipFromIsConsignor = shipFromName === ARSH_TRADERS_NAME
+    const shipFromIsConsignor = shipFromName === config.business.name
 
     const consignorLines = [
-      ARSH_TRADERS_ADDRESS,
-      `GSTIN: ${ARSH_TRADERS_GSTIN}`,
-      `Email: ${ARSH_TRADERS_EMAIL}`,
+      config.business.address,
+      `GSTIN: ${config.business.gstin}`,
+      `Email: ${config.business.email}`,
     ]
     const shipFromLines = locationLines(doc.source)
     const shipToLines = locationLines(doc.destination)
@@ -212,7 +221,7 @@ export async function GET(
       w: cardW,
       h: cardH,
       title: 'CONSIGNOR',
-      name: ARSH_TRADERS_NAME,
+      name: config.business.name,
       lines: consignorLines,
       font,
       fontBold,
@@ -459,7 +468,7 @@ export async function GET(
 
     y -= 14
     drawTextCenter(page, 'Received By (Consignee)', M + 120, y, { font, size: 8.5, color: COLORS.slate })
-    drawTextCenter(page, `Authorized Signatory (${ARSH_TRADERS_NAME})`, M + CONTENT_W - 120, y, {
+    drawTextCenter(page, `Authorized Signatory (${config.business.name})`, M + CONTENT_W - 120, y, {
       font,
       size: 8.5,
       color: COLORS.slate,
@@ -480,7 +489,7 @@ export async function GET(
 
     console.error('PDF Generation Error:', error)
     return NextResponse.json(
-      { error: 'Failed to generate PDF', details: error instanceof Error ? error.message : 'Unknown' },
+      { error: 'Failed to generate PDF. Please try again or contact the site owner.' },
       { status: 500 }
     )
   }
@@ -524,7 +533,7 @@ function drawText(
   y: number,
   opts: { font: PDFFont; size: number; color: any }
 ) {
-  page.drawText(String(text || ''), { x, y, font: opts.font, size: opts.size, color: opts.color })
+  page.drawText(toPdfText(text, opts.font), { x, y, font: opts.font, size: opts.size, color: opts.color })
 }
 
 function drawTextRight(
@@ -534,7 +543,7 @@ function drawTextRight(
   y: number,
   opts: { font: PDFFont; size: number; color: any }
 ) {
-  const t = String(text || '')
+  const t = toPdfText(text, opts.font)
   const w = opts.font.widthOfTextAtSize(t, opts.size)
   page.drawText(t, { x: xRight - w, y, font: opts.font, size: opts.size, color: opts.color })
 }
@@ -546,13 +555,13 @@ function drawTextCenter(
   y: number,
   opts: { font: PDFFont; size: number; color: any }
 ) {
-  const t = String(text || '')
+  const t = toPdfText(text, opts.font)
   const w = opts.font.widthOfTextAtSize(t, opts.size)
   page.drawText(t, { x: xCenter - w / 2, y, font: opts.font, size: opts.size, color: opts.color })
 }
 
 function wrapText(text: string, font: PDFFont, size: number, maxWidth: number, maxLines = 2) {
-  const raw = String(text || '').replace(/\s+/g, ' ').trim()
+  const raw = toPdfText(text, font).replace(/\s+/g, ' ').trim()
   if (!raw) return ['']
 
   const words = raw.split(' ')
@@ -602,20 +611,21 @@ function drawLabelValuePill(page: PDFPage, args: {
   colors: any
 }) {
   const { label, value, x, y, maxPillW, font, fontBold, colors } = args
+  const safeValue = toPdfText(value, fontBold)
 
   drawText(page, label, x, y, { font, size: 9, color: colors.slate })
 
   const pillPadX = 8
   const pillH = 16
   const textSize = 9.5
-  const textW = fontBold.widthOfTextAtSize(value, textSize)
+  const textW = fontBold.widthOfTextAtSize(safeValue, textSize)
   const pillW = Math.min(maxPillW, textW + pillPadX * 2)
 
   const pillX = x + font.widthOfTextAtSize(label, 9) + 8
   const pillY = y - 4
 
   drawRect(page, pillX, pillY, pillW, pillH, colors.lightBox)
-  drawText(page, value, pillX + pillPadX, pillY + 4, { font: fontBold, size: textSize, color: colors.text })
+  drawText(page, safeValue, pillX + pillPadX, pillY + 4, { font: fontBold, size: textSize, color: colors.text })
 }
 
 function drawCard(page: PDFPage, args: {
@@ -645,4 +655,26 @@ function drawCard(page: PDFPage, args: {
     drawText(page, line, x + 12, ty, { font, size: 8.2, color: colors.text })
     ty -= 11
   }
+}
+
+function toPdfText(value: unknown, font: PDFFont) {
+  const normalized = String(value ?? '')
+    .replace(/[\r\n\t]+/g, ' ')
+    .replace(/\u00a0/g, ' ')
+    .replace(/\u20b9/g, 'Rs.')
+    .replace(/\u2032/g, "'")
+    .replace(/\u2033/g, '"')
+    .replace(/\u2212/g, '-')
+
+  let safe = ''
+  for (const char of normalized) {
+    try {
+      font.encodeText(char)
+      safe += char
+    } catch {
+      safe += '?'
+    }
+  }
+
+  return safe
 }

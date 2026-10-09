@@ -4,13 +4,63 @@ import { createServerSupabaseAdmin } from '@/lib/supabase/server'
 import { getAppConfig } from '@/lib/config'
 import { requireAllowedUser } from '@/lib/auth'
 import { ColumnMapping } from '@/types/database'
+import { z } from 'zod'
 
 interface ImportRow {
   [key: string]: string | number | null | undefined
 }
 
+export interface ImportPlaceHistory {
+  suppliers: string[]
+  terminalDestinations: string[]
+}
+
+const importChallanInputSchema = z.object({
+  supplierName: z.string().trim().min(1, 'Supplier name is required'),
+  terminalDestinationName: z
+    .string()
+    .trim()
+    .min(1, 'Terminal destination is required'),
+})
+
+export async function getImportPlaceHistory(): Promise<ImportPlaceHistory> {
+  await requireAllowedUser()
+
+  const supabase = await createServerSupabaseAdmin()
+  const config = getAppConfig()
+
+  const { data: challans, error: challansError } = await supabase
+    .from('company_challans')
+    .select('supplier_name, terminal_destination_name')
+
+  if (challansError) {
+    console.error('Failed to fetch import place history:', challansError.message)
+  }
+
+  const { data: terminalLocations, error: locationsError } = await supabase
+    .from('locations')
+    .select('name')
+    .eq('kind', 'company')
+    .eq('is_active', true)
+
+  if (locationsError) {
+    console.error('Failed to fetch terminal destination history:', locationsError.message)
+  }
+
+  return {
+    suppliers: sortedUnique((challans || []).map((row) => row.supplier_name)),
+    terminalDestinations: sortedUnique([
+      ...(challans || []).map((row) => row.terminal_destination_name),
+      ...(terminalLocations || []).map((row) =>
+        stripLocationPrefix(row.name, config.locations.companyPrefix)
+      ),
+    ]),
+  }
+}
+
 export async function importChallan(
   supplierName: string,
+  terminalDestinationName: string,
   rows: ImportRow[],
   mapping: ColumnMapping
 ) {
@@ -19,6 +69,10 @@ export async function importChallan(
 
     const supabase = await createServerSupabaseAdmin()
     const config = getAppConfig()
+    const input = importChallanInputSchema.parse({
+      supplierName,
+      terminalDestinationName,
+    })
 
     // 1. Ensure locations exist
     const warehouseLocation = await ensureLocation(
@@ -26,13 +80,16 @@ export async function importChallan(
       config.locations.warehouseName,
       'warehouse'
     )
-    const companyLocation = await ensureLocation(
+    const terminalLocation = await ensureLocation(
       supabase,
-      `${config.locations.companyPrefix}${supplierName}`,
+      buildCompanyLocationName(
+        input.terminalDestinationName,
+        config.locations.companyPrefix
+      ),
       'company'
     )
 
-    if (!warehouseLocation || !companyLocation) {
+    if (!warehouseLocation || !terminalLocation) {
       throw new Error('Failed to create locations')
     }
 
@@ -97,7 +154,7 @@ export async function importChallan(
     const { data: existingChallans } = await supabase
       .from('company_challans')
       .select('id, delivery_number')
-      .eq('supplier_name', supplierName)
+      .eq('supplier_name', input.supplierName)
       .in('delivery_number', deliveryNumbers)
 
     const existingChallanMap = new Map(
@@ -117,7 +174,8 @@ export async function importChallan(
       .map((dn) => {
         const firstRow = rowsByDelivery.get(dn)![0]
         return {
-          supplier_name: supplierName,
+          supplier_name: input.supplierName,
+          terminal_destination_name: input.terminalDestinationName,
           delivery_number: dn,
           delivery_date: firstRow.deliveryDate,
         }
@@ -178,17 +236,17 @@ export async function importChallan(
     totalLinesImported = challanLines.length
 
     // 7. Create inbound doc (company → warehouse)
-    const docNo = `${config.documents.inboundPrefix}-${supplierName.substring(0, 10)}-${Date.now()}`
+    const docNo = `${config.documents.inboundPrefix}-${input.supplierName.substring(0, 10)}-${Date.now()}`
     const { data: doc, error: docError } = await supabase
       .from('docs')
       .insert({
         doc_no: docNo,
         doc_type: 'in',
         doc_date: new Date().toISOString().split('T')[0],
-        source_location_id: companyLocation.id,
+        source_location_id: terminalLocation.id,
         dest_location_id: warehouseLocation.id,
-        counterparty_name: supplierName,
-        notes: `Imported ${deliveryNumbers.length} delivery numbers: ${deliveryNumbers.join(', ')}`,
+        counterparty_name: input.supplierName,
+        notes: `Imported ${deliveryNumbers.length} delivery numbers: ${deliveryNumbers.join(', ')}. Terminal destination: ${input.terminalDestinationName}`,
       })
       .select('id')
       .single()
@@ -283,6 +341,27 @@ async function ensureLocation(supabase: any, name: string, kind: string) {
   }
 
   return created
+}
+
+function buildCompanyLocationName(name: string, prefix: string) {
+  return `${prefix}${stripLocationPrefix(name, prefix)}`
+}
+
+function stripLocationPrefix(value: string | null | undefined, prefix: string) {
+  const name = normalizePlaceName(value)
+  return name.toLowerCase().startsWith(prefix.toLowerCase())
+    ? name.slice(prefix.length).trim()
+    : name
+}
+
+function sortedUnique(values: Array<string | null | undefined>) {
+  return Array.from(
+    new Set(values.map(normalizePlaceName).filter(Boolean))
+  ).sort((a, b) => a.localeCompare(b))
+}
+
+function normalizePlaceName(value: string | null | undefined) {
+  return value?.trim() || ''
 }
 
 function excelDateToISO(value: any): string | null {

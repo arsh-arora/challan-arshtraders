@@ -8,6 +8,7 @@ interface DestinationInfo {
   id: string
   name: string
   kind: string
+  terminal_destination_name?: string | null
 }
 
 interface AddLinesModalProps {
@@ -38,12 +39,10 @@ export default function AddLinesModal({
   const [selectedLines, setSelectedLines] = useState<SelectedLine[]>([])
   const [filter, setFilter] = useState('')
 
-  // Check if this is a return to company - if so, filter by supplier
+  // Check if this is a return to company - if so, filter by terminal destination
   const isReturnToCompany = destinationInfo?.kind === 'company'
-  // Location names have "Company:" prefix, but supplier_name in DB doesn't
-  // e.g., location "Company:Karl Storz" → supplier_name "Karl Storz"
-  const returnToSupplierName = isReturnToCompany
-    ? destinationInfo?.name?.replace(/^Company:/i, '') || null
+  const returnToTerminalDestinationName = isReturnToCompany
+    ? destinationInfo?.terminal_destination_name || destinationInfo?.name || null
     : null
 
   useEffect(() => {
@@ -130,10 +129,12 @@ export default function AddLinesModal({
     onAddLines(selectedLines)
   }
 
-  // Filter by search term and supplier (when returning to company)
+  // Filter by search term and terminal destination (when returning to company)
   const filteredItems = availableItems.filter((item) => {
-    // If returning to a company, only show items from that supplier
-    if (returnToSupplierName && item.supplier_name !== returnToSupplierName) {
+    if (
+      returnToTerminalDestinationName &&
+      item.terminal_destination_name !== returnToTerminalDestinationName
+    ) {
       return false
     }
 
@@ -179,12 +180,14 @@ export default function AddLinesModal({
             </button>
           </div>
 
-          {/* Supplier filter notice for returns */}
-          {isReturnToCompany && returnToSupplierName && (
+          {/* Terminal destination filter notice for returns */}
+          {isReturnToCompany && returnToTerminalDestinationName && (
             <div className="mt-3 p-3 bg-purple-50 border border-purple-200 rounded-md">
               <p className="text-sm text-purple-800">
-                <span className="font-medium">Returning to {returnToSupplierName}:</span>{' '}
-                Only items originally received from this supplier are shown.
+                <span className="font-medium">
+                  Returning to {returnToTerminalDestinationName}:
+                </span>{' '}
+                Only items assigned to this terminal destination are shown.
               </p>
             </div>
           )}
@@ -212,10 +215,13 @@ export default function AddLinesModal({
           ) : filteredItems.length === 0 && isReturnToCompany ? (
             <div className="text-center py-8">
               <p className="text-gray-500 mb-2">
-                No items available from <span className="font-medium">{returnToSupplierName}</span>
+                No items available for{' '}
+                <span className="font-medium">
+                  {returnToTerminalDestinationName}
+                </span>
               </p>
               <p className="text-sm text-gray-400">
-                Items can only be returned to their original supplier.
+                Items can only be closed at their terminal destination.
               </p>
             </div>
           ) : (

@@ -1,6 +1,7 @@
 'use client'
 
 import { useState } from 'react'
+import { downloadFile } from '@/lib/download'
 
 interface DownloadPDFButtonProps {
   docId: string
@@ -13,24 +14,14 @@ export default function DownloadPDFButton({ docId, docNo }: DownloadPDFButtonPro
   const handleDownload = async () => {
     setLoading(true)
     try {
-      const response = await fetch(`/api/document/${docId}/pdf`)
-
-      if (!response.ok) {
-        throw new Error('Failed to generate PDF')
-      }
-
-      const blob = await response.blob()
-      const url = window.URL.createObjectURL(blob)
-      const a = document.createElement('a')
-      a.href = url
-      a.download = `${docNo}.pdf`
-      document.body.appendChild(a)
-      a.click()
-      window.URL.revokeObjectURL(url)
-      document.body.removeChild(a)
+      await downloadFile({
+        url: `/api/document/${docId}/pdf`,
+        filename: `${docNo}.pdf`,
+        contentType: 'application/pdf',
+      })
     } catch (error) {
       console.error('Download error:', error)
-      alert('Failed to download PDF')
+      alert(error instanceof Error ? error.message : 'Failed to download PDF')
     } finally {
       setLoading(false)
     }

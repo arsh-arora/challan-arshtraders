@@ -200,7 +200,7 @@ export async function createDocument(
           id,
           hsn_code,
           unit_cost,
-          company_challans!inner(delivery_number, delivery_date, supplier_name),
+          company_challans!inner(delivery_number, delivery_date, supplier_name, terminal_destination_name),
           items!inner(material_code, description)
         `
         )
@@ -261,12 +261,10 @@ export async function createDocument(
     const docType = determineDocType(destLocation?.kind || '')
     console.log('[createDocument] Determined docType:', docType)
 
-    // For returns to company: validate that all items originated from this company
+    // For returns to company: validate that all items close at this terminal destination
     if (docType === 'return' && destLocation) {
       const mismatchedItems: string[] = []
-      // Location names have "Company:" prefix, but supplier_name in DB doesn't
-      // e.g., location "Company:Karl Storz" → supplier_name "Karl Storz"
-      const expectedSupplier = stripPrefix(
+      const expectedTerminalDestination = stripPrefix(
         destLocation.name,
         config.locations.companyPrefix
       )
@@ -274,11 +272,14 @@ export async function createDocument(
       for (const line of normalizedLines) {
         const challanLine = challanLineMap.get(line.challan_line_id)
         if (challanLine) {
-          const supplierName = (challanLine.company_challans as any).supplier_name
-          // Check if supplier name matches destination company
-          if (supplierName !== expectedSupplier) {
+          const terminalDestinationName = (challanLine.company_challans as any)
+            .terminal_destination_name
+
+          if (terminalDestinationName !== expectedTerminalDestination) {
             const materialCode = (challanLine.items as any).material_code
-            mismatchedItems.push(`${materialCode} (from ${supplierName})`)
+            mismatchedItems.push(
+              `${materialCode} (terminal: ${terminalDestinationName})`
+            )
           }
         }
       }
@@ -286,7 +287,7 @@ export async function createDocument(
       if (mismatchedItems.length > 0) {
         return {
           success: false,
-          message: `Cannot return items to ${expectedSupplier}. The following items belong to different suppliers: ${mismatchedItems.join(', ')}`,
+          message: `Cannot close items at ${expectedTerminalDestination}. The following items have different terminal destinations: ${mismatchedItems.join(', ')}`,
         }
       }
     }
@@ -415,6 +416,7 @@ export async function getLocations() {
   await requireAllowedUser()
 
   const supabase = await createServerSupabaseAdmin()
+  const config = getAppConfig()
 
   // Try to fetch with new columns first, fallback to basic columns if they don't exist
   const { data, error } = await supabase
@@ -438,15 +440,18 @@ export async function getLocations() {
     }
 
     // Add null values for missing columns
-    return (basicResult.data || []).map(loc => ({
-      ...loc,
-      gstin: null,
-      address: null,
-      contact: null,
-    }))
+    return withTerminalDestinationNames(
+      (basicResult.data || []).map(loc => ({
+        ...loc,
+        gstin: null,
+        address: null,
+        contact: null,
+      })),
+      config.locations.companyPrefix
+    )
   }
 
-  return data || []
+  return withTerminalDestinationNames(data || [], config.locations.companyPrefix)
 }
 
 export async function getAvailableItems(locationId: string) {
@@ -466,13 +471,18 @@ export async function createLocation(input: LocationInput) {
   await requireAllowedUser()
 
   const supabase = await createServerSupabaseAdmin()
+  const config = getAppConfig()
   const { name, kind, gstin, address, contact } = input
+  const locationName =
+    kind === 'company'
+      ? buildCompanyLocationName(name, config.locations.companyPrefix)
+      : name.trim()
 
   // Check if location already exists
   const { data: existing } = await supabase
     .from('locations')
     .select('id, kind')
-    .eq('name', name)
+    .eq('name', locationName)
     .single()
 
   if (existing) {
@@ -507,7 +517,7 @@ export async function createLocation(input: LocationInput) {
   const { data, error } = await supabase
     .from('locations')
     .insert({
-      name,
+      name: locationName,
       kind,
       is_active: true,
       gstin: gstin || null,
@@ -553,7 +563,25 @@ export async function updateLocation(
 }
 
 function stripPrefix(value: string, prefix: string) {
-  return value.toLowerCase().startsWith(prefix.toLowerCase())
-    ? value.slice(prefix.length)
-    : value
+  const trimmedValue = value.trim()
+  return trimmedValue.toLowerCase().startsWith(prefix.toLowerCase())
+    ? trimmedValue.slice(prefix.length).trim()
+    : trimmedValue
+}
+
+function buildCompanyLocationName(value: string, prefix: string) {
+  return `${prefix}${stripPrefix(value, prefix)}`
+}
+
+function withTerminalDestinationNames<T extends { name: string; kind: string }>(
+  locations: T[],
+  companyPrefix: string
+) {
+  return locations.map((location) => ({
+    ...location,
+    terminal_destination_name:
+      location.kind === 'company'
+        ? stripPrefix(location.name, companyPrefix)
+        : null,
+  }))
 }

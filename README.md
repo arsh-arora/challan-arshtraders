@@ -91,8 +91,21 @@ This does not replace Supabase Pro for guaranteed no-pause production use.
 Before deploying:
 
 ```bash
+npm test
 npm run lint
 npx tsc --noEmit --pretty false
 npm run build
 npm run check:supabase
 ```
+
+If the app cannot reach Supabase, check that the linked project is active in the
+Supabase dashboard. A paused project must be resumed before schema checks or
+migrations can run. The login page alone does not confirm database availability.
+
+For a missing `terminal_destination_name` error, first verify that the deployed
+Supabase URL matches the linked project. Review remote migration history with
+`supabase migration list` and inspect pending changes with
+`supabase db push --include-all --dry-run` before applying them. Both the challan
+table and `v_outstanding_to_company` need the terminal destination field; the
+existing repair migration also reloads the PostgREST schema cache. This database
+is shared with the service tracker, so review pending migrations from both apps.

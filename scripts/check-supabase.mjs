@@ -70,6 +70,32 @@ async function main() {
 
   await assertRelation('v_outstanding_to_company')
 
+  const { error: challansColumnError } = await supabase
+    .from('company_challans')
+    .select('id, supplier_name, terminal_destination_name', {
+      head: true,
+      count: 'exact',
+    })
+
+  if (challansColumnError) {
+    throw new Error(
+      `company_challans terminal destination column: ${challansColumnError.message}`
+    )
+  }
+
+  const { error: outstandingColumnError } = await supabase
+    .from('v_outstanding_to_company')
+    .select('challan_line_id, terminal_destination_name', {
+      head: true,
+      count: 'exact',
+    })
+
+  if (outstandingColumnError) {
+    throw new Error(
+      `v_outstanding_to_company terminal destination column: ${outstandingColumnError.message}`
+    )
+  }
+
   const { data: warehouse, error } = await supabase
     .from('locations')
     .select('name, kind, gstin')

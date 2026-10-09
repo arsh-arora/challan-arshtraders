@@ -1,8 +1,12 @@
 'use client'
 
-import { useState } from 'react'
+import { useCallback, useEffect, useState } from 'react'
 import ExcelJS from 'exceljs'
-import { importChallan } from './actions'
+import {
+  getImportPlaceHistory,
+  importChallan,
+  type ImportPlaceHistory,
+} from './actions'
 import { ColumnMapping } from '@/types/database'
 
 export default function UploadPage() {
@@ -10,6 +14,12 @@ export default function UploadPage() {
   const [columns, setColumns] = useState<string[]>([])
   const [rows, setRows] = useState<Record<string, unknown>[]>([])
   const [supplierName, setSupplierName] = useState('')
+  const [terminalDestinationName, setTerminalDestinationName] = useState('')
+  const [terminalMatchesSupplier, setTerminalMatchesSupplier] = useState(true)
+  const [placeHistory, setPlaceHistory] = useState<ImportPlaceHistory>({
+    suppliers: [],
+    terminalDestinations: [],
+  })
   const [mapping, setMapping] = useState<ColumnMapping>({
     deliveryNumber: 'Delivery Number',
     deliveryDate: 'Delivery Date',
@@ -22,6 +32,33 @@ export default function UploadPage() {
   })
   const [loading, setLoading] = useState(false)
   const [result, setResult] = useState<{ success: boolean; message: string } | null>(null)
+
+  const refreshPlaceHistory = useCallback(async () => {
+    try {
+      const history = await getImportPlaceHistory()
+      setPlaceHistory(history)
+    } catch (error) {
+      console.error('Failed to load place history:', error)
+    }
+  }, [])
+
+  useEffect(() => {
+    refreshPlaceHistory()
+  }, [refreshPlaceHistory])
+
+  const handleSupplierNameChange = (value: string) => {
+    setSupplierName(value)
+    if (terminalMatchesSupplier) {
+      setTerminalDestinationName(value)
+    }
+  }
+
+  const handleTerminalMatchesSupplierChange = (checked: boolean) => {
+    setTerminalMatchesSupplier(checked)
+    if (checked) {
+      setTerminalDestinationName(supplierName)
+    }
+  }
 
   const handleFileChange = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const selectedFile = e.target.files?.[0]
@@ -80,7 +117,11 @@ export default function UploadPage() {
         // Auto-detect supplier name from Customer Name if available
         const firstRow = jsonData[0]
         if (firstRow['Customer Name']) {
-          setSupplierName(String(firstRow['Customer Name']))
+          const detectedSupplierName = String(firstRow['Customer Name']).trim()
+          setSupplierName(detectedSupplierName)
+          if (terminalMatchesSupplier) {
+            setTerminalDestinationName(detectedSupplierName)
+          }
         }
 
         // Auto-match column mappings based on common variations
@@ -118,6 +159,15 @@ export default function UploadPage() {
       return
     }
 
+    const effectiveTerminalDestinationName = terminalMatchesSupplier
+      ? supplierName
+      : terminalDestinationName
+
+    if (!effectiveTerminalDestinationName.trim()) {
+      alert('Please enter terminal destination')
+      return
+    }
+
     if (rows.length === 0) {
       alert('No data to import')
       return
@@ -129,8 +179,16 @@ export default function UploadPage() {
     try {
       // Convert rows to plain objects to avoid serialization issues
       const plainRows = JSON.parse(JSON.stringify(rows))
-      const response = await importChallan(supplierName, plainRows, mapping)
+      const response = await importChallan(
+        supplierName,
+        effectiveTerminalDestinationName,
+        plainRows,
+        mapping
+      )
       setResult(response)
+      if (response.success) {
+        await refreshPlaceHistory()
+      }
     } catch (error) {
       setResult({
         success: false,
@@ -183,10 +241,51 @@ export default function UploadPage() {
                 <input
                   type="text"
                   value={supplierName}
-                  onChange={(e) => setSupplierName(e.target.value)}
+                  onChange={(e) => handleSupplierNameChange(e.target.value)}
+                  list="supplier-name-history"
                   className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500"
                   placeholder="Enter supplier name"
                 />
+                <datalist id="supplier-name-history">
+                  {placeHistory.suppliers.map((supplier) => (
+                    <option key={supplier} value={supplier} />
+                  ))}
+                </datalist>
+              </div>
+
+              {/* Terminal Destination */}
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-1">
+                  Terminal Destination *
+                </label>
+                <input
+                  type="text"
+                  value={terminalMatchesSupplier ? supplierName : terminalDestinationName}
+                  onChange={(e) => setTerminalDestinationName(e.target.value)}
+                  list="terminal-destination-history"
+                  disabled={terminalMatchesSupplier}
+                  className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500 disabled:bg-gray-100 disabled:text-gray-600"
+                  placeholder="Enter terminal destination"
+                />
+                <datalist id="terminal-destination-history">
+                  {placeHistory.terminalDestinations.map((destination) => (
+                    <option key={destination} value={destination} />
+                  ))}
+                </datalist>
+                <label className="mt-2 flex items-center gap-2 text-sm text-gray-700">
+                  <input
+                    type="checkbox"
+                    checked={terminalMatchesSupplier}
+                    onChange={(e) =>
+                      handleTerminalMatchesSupplierChange(e.target.checked)
+                    }
+                    className="h-4 w-4 rounded border-gray-300 text-blue-600 focus:ring-blue-500"
+                  />
+                  Same as supplier name
+                </label>
+                <p className="mt-1 text-xs text-gray-500">
+                  Items reaching this destination are no longer outstanding.
+                </p>
               </div>
 
               {/* Delivery Number */}

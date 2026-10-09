@@ -12,6 +12,7 @@ interface Location {
   gstin: string | null
   address: string | null
   contact: string | null
+  terminal_destination_name: string | null
 }
 
 interface LineItem extends DocumentLine {
@@ -586,7 +587,13 @@ export default function NewDocumentPage() {
             destMode === 'select' && header.dest_location_id
               ? locations.find((l) => l.id === header.dest_location_id) || null
               : destMode === 'manual' && manualDestName
-              ? { id: '', name: manualDestName, kind: manualDestKind }
+              ? {
+                  id: '',
+                  name: manualDestName,
+                  kind: manualDestKind,
+                  terminal_destination_name:
+                    manualDestKind === 'company' ? manualDestName : null,
+                }
               : null
           }
           onClose={() => setShowModal(false)}

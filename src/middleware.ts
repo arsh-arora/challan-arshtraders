@@ -34,63 +34,111 @@ function isEmailAllowed(email: string | undefined) {
 }
 
 export async function middleware(request: NextRequest) {
-  const supabaseResponse = NextResponse.next({
+  let supabaseResponse = NextResponse.next({
     request,
   })
 
-  const supabase = createServerClient(
-    process.env.NEXT_PUBLIC_SUPABASE_URL!,
-    process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!,
-    {
-      cookies: {
-        getAll() {
-          return request.cookies.getAll()
+  const pathname = request.nextUrl.pathname
+  const isLoginRoute = pathname === '/login' || pathname.startsWith('/login/')
+  const isApiRoute = pathname.startsWith('/api/')
+
+  // These handlers perform their own authentication. Keep session refresh from
+  // blocking the OAuth exchange or the independent health check.
+  if (pathname.startsWith('/auth/') || pathname === '/api/health/supabase') {
+    return supabaseResponse
+  }
+
+  const withCookies = (response: NextResponse) => {
+    supabaseResponse.cookies.getAll().forEach((cookie) => response.cookies.set(cookie))
+    return response
+  }
+
+  try {
+    const supabase = createServerClient(
+      process.env.NEXT_PUBLIC_SUPABASE_URL!,
+      process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!,
+      {
+        cookies: {
+          getAll() {
+            return request.cookies.getAll()
+          },
+          setAll(cookiesToSet) {
+            cookiesToSet.forEach(({ name, value }) => {
+              request.cookies.set(name, value)
+            })
+            supabaseResponse = NextResponse.next({ request })
+            cookiesToSet.forEach(({ name, value, options }) => {
+              supabaseResponse.cookies.set(name, value, options)
+            })
+          },
         },
-        setAll(cookiesToSet) {
-          cookiesToSet.forEach(({ name, value, options }) => {
-            request.cookies.set(name, value)
-            supabaseResponse.cookies.set(name, value, options)
-          })
-        },
-      },
+      }
+    )
+
+    // Refresh session if expired - required for Server Components
+    const {
+      data: { user },
+      error,
+    } = await supabase.auth.getUser()
+
+    if (error && (
+      error.name === 'AuthRetryableFetchError' ||
+      (error.status !== undefined && error.status >= 500)
+    )) {
+      throw error
     }
-  )
 
-  // Refresh session if expired - required for Server Components
-  const {
-    data: { user },
-  } = await supabase.auth.getUser()
+    // If user is not signed in and the current path is not public, redirect to /login
+    if (!user && !isLoginRoute) {
+      if (isApiRoute) {
+        return withCookies(NextResponse.json(
+          { error: 'Your session has expired. Please sign in again.' },
+          { status: 401 }
+        ))
+      }
+      const url = request.nextUrl.clone()
+      url.pathname = '/login'
+      return withCookies(NextResponse.redirect(url))
+    }
 
-  // Public routes that don't require authentication
-  const isPublicRoute =
-    request.nextUrl.pathname.startsWith('/login') ||
-    request.nextUrl.pathname.startsWith('/auth') ||
-    request.nextUrl.pathname.startsWith('/api/health/supabase')
+    const allowedUser = user ? isEmailAllowed(user.email) : false
 
-  // If user is not signed in and the current path is not public, redirect to /login
-  if (!user && !isPublicRoute) {
-    const url = request.nextUrl.clone()
-    url.pathname = '/login'
-    return NextResponse.redirect(url)
+    if (user && !allowedUser && !isLoginRoute) {
+      if (isApiRoute) {
+        return withCookies(NextResponse.json(
+          { error: 'Your account is not authorized for this internal tool.' },
+          { status: 403 }
+        ))
+      }
+      const url = request.nextUrl.clone()
+      url.pathname = '/login'
+      url.searchParams.set('error', 'unauthorized')
+      return withCookies(NextResponse.redirect(url))
+    }
+
+    // If user is signed in and tries to access /login, redirect to home
+    if (user && allowedUser && isLoginRoute) {
+      const url = request.nextUrl.clone()
+      url.pathname = '/'
+      return withCookies(NextResponse.redirect(url))
+    }
+
+    return supabaseResponse
+  } catch (error) {
+    console.error('Authentication middleware failed:', error)
+
+    // The sign-in page remains accessible during an outage, while protected
+    // requests fail closed instead of crashing the edge function.
+    if (isLoginRoute) return supabaseResponse
+
+    const message = 'Sign-in is temporarily unavailable. Please try again later.'
+    return withCookies(isApiRoute
+      ? NextResponse.json({ error: message }, { status: 503 })
+      : new NextResponse(message, {
+          status: 503,
+          headers: { 'Content-Type': 'text/plain; charset=utf-8' },
+        }))
   }
-
-  const allowedUser = user ? isEmailAllowed(user.email) : false
-
-  if (user && !allowedUser && !request.nextUrl.pathname.startsWith('/login')) {
-    const url = request.nextUrl.clone()
-    url.pathname = '/login'
-    url.searchParams.set('error', 'unauthorized')
-    return NextResponse.redirect(url)
-  }
-
-  // If user is signed in and tries to access /login, redirect to home
-  if (user && allowedUser && request.nextUrl.pathname.startsWith('/login')) {
-    const url = request.nextUrl.clone()
-    url.pathname = '/'
-    return NextResponse.redirect(url)
-  }
-
-  return supabaseResponse
 }
 
 export const config = {

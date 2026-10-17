@@ -9,6 +9,8 @@ const csvList = (value: string | undefined) =>
 const csvLowerList = (value: string | undefined) =>
   csvList(value).map((entry) => entry.toLowerCase())
 
+const positiveInteger = z.coerce.number().int().positive()
+
 const envSchema = z.object({
   NEXT_PUBLIC_SUPABASE_URL: z.string().url(),
   NEXT_PUBLIC_SUPABASE_ANON_KEY: z.string().min(1),
@@ -32,6 +34,12 @@ const envSchema = z.object({
   DOC_DEFAULT_PREFIX: z.string().min(1).default('DOC'),
   TICKET_PREFIX: z.string().min(1).default('TKT'),
   TICKET_SEQUENCE_WIDTH: z.coerce.number().int().positive().default(4),
+  INVENTORY_QUERY_PAGE_SIZE: process.env.NODE_ENV === 'production'
+    ? positiveInteger
+    : positiveInteger.default(200),
+  INVENTORY_QUERY_ID_BATCH_SIZE: process.env.NODE_ENV === 'production'
+    ? positiveInteger
+    : positiveInteger.default(100),
   KEEPALIVE_TOKEN: z.string().min(24).optional(),
 })
 
@@ -71,6 +79,10 @@ let cachedConfig: {
   }
   keepalive: {
     token?: string
+  }
+  inventoryQueries: {
+    pageSize: number
+    idBatchSize: number
   }
 }
 
@@ -118,6 +130,10 @@ export function getAppConfig() {
     },
     keepalive: {
       token: env.KEEPALIVE_TOKEN,
+    },
+    inventoryQueries: {
+      pageSize: env.INVENTORY_QUERY_PAGE_SIZE,
+      idBatchSize: env.INVENTORY_QUERY_ID_BATCH_SIZE,
     },
   }
 

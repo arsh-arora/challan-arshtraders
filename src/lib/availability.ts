@@ -1,4 +1,6 @@
+import { z } from 'zod'
 import { createServerSupabaseAdmin } from './supabase/server'
+import { readAllRows, readRowsByIds } from './supabase/read'
 
 export interface AvailableItem {
   challan_line_id: string
@@ -13,162 +15,107 @@ export interface AvailableItem {
   terminal_destination_name: string
 }
 
-/**
- * Calculate available quantity for a challan_line at a specific location
- * Available = total moved in - total moved out
- */
+const receiptSchema = z.object({ challan_line_id: z.string() })
+const movementSchema = receiptSchema.extend({ qty: z.coerce.number().positive() })
+const lineDetailSchema = z.object({
+  id: z.string(),
+  hsn_code: z.string().nullable(),
+  unit_cost: z.coerce.number().nonnegative().nullable(),
+  company_challans: z.object({
+    delivery_number: z.string(),
+    delivery_date: z.string().nullable(),
+    supplier_name: z.string(),
+    terminal_destination_name: z.string(),
+  }),
+  items: z.object({ material_code: z.string(), description: z.string().nullable() }),
+})
+
+/** Available quantity is the complete movement history: receipts minus issues. */
 export async function getAvailableAtLocation(
   challanLineId: string,
   locationId: string
 ): Promise<number> {
-  const supabase = await createServerSupabaseAdmin()
-
-  // Run both queries in parallel
-  const [{ data: inData }, { data: outData }] = await Promise.all([
-    supabase
-      .from('doc_lines')
-      .select('qty, docs!inner(dest_location_id)')
-      .eq('challan_line_id', challanLineId)
-      .eq('docs.dest_location_id', locationId),
-    supabase
-      .from('doc_lines')
-      .select('qty, docs!inner(source_location_id)')
-      .eq('challan_line_id', challanLineId)
-      .eq('docs.source_location_id', locationId),
-  ])
-
-  const totalIn = inData?.reduce((sum, row) => sum + Number(row.qty), 0) || 0
-  const totalOut = outData?.reduce((sum, row) => sum + Number(row.qty), 0) || 0
-
-  return totalIn - totalOut
+  const quantities = await getBatchAvailableAtLocation([challanLineId], locationId)
+  return quantities.get(challanLineId) ?? 0
 }
 
-/**
- * Batch calculate available quantities for multiple challan_lines at a location
- * Much more efficient than calling getAvailableAtLocation in a loop
- */
 export async function getBatchAvailableAtLocation(
   challanLineIds: string[],
   locationId: string
 ): Promise<Map<string, number>> {
-  if (challanLineIds.length === 0) {
-    return new Map()
-  }
-
+  if (challanLineIds.length === 0) return new Map()
   const supabase = await createServerSupabaseAdmin()
 
-  // Run both queries in parallel for ALL items at once
-  const [{ data: inData }, { data: outData }] = await Promise.all([
-    supabase
-      .from('doc_lines')
-      .select('challan_line_id, qty, docs!inner(dest_location_id)')
-      .in('challan_line_id', challanLineIds)
-      .eq('docs.dest_location_id', locationId),
-    supabase
-      .from('doc_lines')
-      .select('challan_line_id, qty, docs!inner(source_location_id)')
-      .in('challan_line_id', challanLineIds)
-      .eq('docs.source_location_id', locationId),
+  const [incoming, outgoing] = await Promise.all([
+    readRowsByIds('stock receipts', movementSchema, challanLineIds, (ids, from, to) =>
+      supabase.from('doc_lines')
+        .select('challan_line_id, qty, docs!inner(dest_location_id)', { count: 'exact' })
+        .in('challan_line_id', ids)
+        .eq('docs.dest_location_id', locationId)
+        .order('id').range(from, to)
+    ),
+    readRowsByIds('stock issues', movementSchema, challanLineIds, (ids, from, to) =>
+      supabase.from('doc_lines')
+        .select('challan_line_id, qty, docs!inner(source_location_id)', { count: 'exact' })
+        .in('challan_line_id', ids)
+        .eq('docs.source_location_id', locationId)
+        .order('id').range(from, to)
+    ),
   ])
 
-  // Aggregate totals by challan_line_id
-  const inTotals = new Map<string, number>()
-  const outTotals = new Map<string, number>()
-
-  inData?.forEach((row) => {
-    const current = inTotals.get(row.challan_line_id) || 0
-    inTotals.set(row.challan_line_id, current + Number(row.qty))
-  })
-
-  outData?.forEach((row) => {
-    const current = outTotals.get(row.challan_line_id) || 0
-    outTotals.set(row.challan_line_id, current + Number(row.qty))
-  })
-
-  // Calculate available for each challan_line_id
-  const result = new Map<string, number>()
-  for (const id of challanLineIds) {
-    const totalIn = inTotals.get(id) || 0
-    const totalOut = outTotals.get(id) || 0
-    result.set(id, totalIn - totalOut)
+  const quantities = new Map([...new Set(challanLineIds)].map((id) => [id, 0]))
+  for (const row of incoming) {
+    quantities.set(row.challan_line_id, (quantities.get(row.challan_line_id) ?? 0) + row.qty)
   }
-
-  return result
+  for (const row of outgoing) {
+    quantities.set(row.challan_line_id, (quantities.get(row.challan_line_id) ?? 0) - row.qty)
+  }
+  return quantities
 }
 
-/**
- * Get all available items at a location with qty > 0
- */
-export async function getAvailableInventory(
-  locationId: string
-): Promise<AvailableItem[]> {
+export async function getAvailableInventory(locationId: string): Promise<AvailableItem[]> {
   const supabase = await createServerSupabaseAdmin()
+  const receipts = await readAllRows('stock receipts', receiptSchema, (from, to) =>
+    supabase.from('doc_lines')
+      .select('challan_line_id, docs!inner(dest_location_id)', { count: 'exact' })
+      .eq('docs.dest_location_id', locationId)
+      .order('id').range(from, to)
+  )
+  const ids = [...new Set(receipts.map((row) => row.challan_line_id))]
+  if (ids.length === 0) return []
 
-  // Get all challan lines that have been moved into this location
-  const { data: challanLines } = await supabase
-    .from('doc_lines')
-    .select(
-      `
-      challan_line_id,
-      docs!inner(dest_location_id)
-    `
-    )
-    .eq('docs.dest_location_id', locationId)
-
-  if (!challanLines || challanLines.length === 0) {
-    return []
-  }
-
-  // Get unique challan_line_ids
-  const uniqueChallanLineIds = [
-    ...new Set(challanLines.map((line) => line.challan_line_id)),
-  ]
-
-  // Batch fetch: availability AND line details in parallel
-  const [availabilityMap, { data: lineDetails }] = await Promise.all([
-    getBatchAvailableAtLocation(uniqueChallanLineIds, locationId),
-    supabase
-      .from('company_challan_lines')
-      .select(
-        `
-        id,
-        hsn_code,
-        unit_cost,
-        company_challans!inner(delivery_number, delivery_date, supplier_name, terminal_destination_name),
-        items!inner(material_code, description)
-      `
-      )
-      .in('id', uniqueChallanLineIds),
+  const [quantities, details] = await Promise.all([
+    getBatchAvailableAtLocation(ids, locationId),
+    readRowsByIds('item details', lineDetailSchema, ids, (batch, from, to) =>
+      supabase.from('company_challan_lines')
+        .select(`id, hsn_code, unit_cost,
+          company_challans!inner(delivery_number, delivery_date, supplier_name, terminal_destination_name),
+          items!inner(material_code, description)`, { count: 'exact' })
+        .in('id', batch)
+        .order('id').range(from, to)
+    ),
   ])
 
-  // Build result - no more loops with DB calls
-  const availableItems: AvailableItem[] = []
-
-  for (const lineData of lineDetails || []) {
-    const available = availabilityMap.get(lineData.id) || 0
-
-    if (available > 0) {
-      availableItems.push({
-        challan_line_id: lineData.id,
-        delivery_number: (lineData.company_challans as any).delivery_number,
-        delivery_date: (lineData.company_challans as any).delivery_date,
-        material_code: (lineData.items as any).material_code,
-        material_description: (lineData.items as any).description,
-        hsn_code: lineData.hsn_code,
-        available_qty: available,
-        unit_cost: lineData.unit_cost,
-        supplier_name: (lineData.company_challans as any).supplier_name,
-        terminal_destination_name: (lineData.company_challans as any)
-          .terminal_destination_name,
-      })
-    }
+  if (details.length !== ids.length) {
+    throw new Error('Unable to load all item details. Please try again.')
   }
 
-  // Sort by delivery_number, then material_code
-  return availableItems.sort((a, b) => {
-    if (a.delivery_number !== b.delivery_number) {
-      return a.delivery_number.localeCompare(b.delivery_number)
-    }
-    return a.material_code.localeCompare(b.material_code)
-  })
+  return details.flatMap((line): AvailableItem[] => {
+    const available = quantities.get(line.id) ?? 0
+    if (available <= 0) return []
+    return [{
+      challan_line_id: line.id,
+      delivery_number: line.company_challans.delivery_number,
+      delivery_date: line.company_challans.delivery_date,
+      material_code: line.items.material_code,
+      material_description: line.items.description,
+      hsn_code: line.hsn_code,
+      available_qty: available,
+      unit_cost: line.unit_cost,
+      supplier_name: line.company_challans.supplier_name,
+      terminal_destination_name: line.company_challans.terminal_destination_name,
+    }]
+  }).sort((a, b) =>
+    a.delivery_number.localeCompare(b.delivery_number) || a.material_code.localeCompare(b.material_code)
+  )
 }

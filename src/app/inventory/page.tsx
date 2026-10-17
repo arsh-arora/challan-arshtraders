@@ -10,6 +10,8 @@ type StatusFilter = 'all' | 'warehouse' | 'out' | 'returned' | 'outstanding'
 export default function InventoryPage() {
   const [inventory, setInventory] = useState<InventoryItem[]>([])
   const [loading, setLoading] = useState(true)
+  const [loadError, setLoadError] = useState<string | null>(null)
+  const [loadAttempt, setLoadAttempt] = useState(0)
   const [searchTerm, setSearchTerm] = useState('')
   const [debouncedSearch, setDebouncedSearch] = useState('')
 
@@ -30,20 +32,25 @@ export default function InventoryPage() {
   }, [searchTerm])
 
   useEffect(() => {
-    loadInventory()
-  }, [debouncedSearch])
-
-  const loadInventory = async () => {
+    let cancelled = false
     setLoading(true)
-    try {
-      const data = await getInventory(debouncedSearch || undefined)
-      setInventory(data)
-    } catch (error) {
-      console.error('Failed to load inventory:', error)
-    } finally {
-      setLoading(false)
+    setLoadError(null)
+    setInventory([])
+
+    async function load() {
+      try {
+        const data = await getInventory(debouncedSearch || undefined)
+        if (!cancelled) setInventory(data)
+      } catch (error) {
+        console.error('Failed to load inventory:', error)
+        if (!cancelled) setLoadError('Unable to load inventory. Please try again.')
+      } finally {
+        if (!cancelled) setLoading(false)
+      }
     }
-  }
+    void load()
+    return () => { cancelled = true }
+  }, [debouncedSearch, loadAttempt])
 
   // Get unique suppliers for filter dropdown
   const uniqueSuppliers = useMemo(() => {
@@ -250,6 +257,16 @@ export default function InventoryPage() {
       <div className="bg-white rounded-lg shadow overflow-hidden">
         {loading ? (
           <p className="text-center text-gray-500 py-8">Loading inventory...</p>
+        ) : loadError ? (
+          <div role="alert" className="text-center py-8">
+            <p className="text-red-700 mb-3">{loadError}</p>
+            <button
+              onClick={() => setLoadAttempt((attempt) => attempt + 1)}
+              className="px-4 py-2 border rounded-md"
+            >
+              Retry
+            </button>
+          </div>
         ) : filteredAndSortedInventory.length === 0 ? (
           <p className="text-center text-gray-500 py-8">
             {inventory.length === 0 ? 'No inventory items found' : 'No items match the current filters'}

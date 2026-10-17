@@ -225,3 +225,150 @@ test('download saves a PDF and cleans up the temporary URL', async () => {
   assert.equal(fixture.anchor.download, 'fixture.pdf')
   assert.deepEqual(fixture.events, ['append', 'click', 'remove', 'revoke'])
 })
+
+function stockFixture({ pageSize = 200, serverCap = 1000, fail } = {}) {
+  const warehouseId = 'fixture-warehouse'
+  const details = Array.from({ length: 864 }, (_, index) => ({
+    id: `line-${String(index).padStart(4, '0')}`,
+    hsn_code: null,
+    unit_cost: null,
+    qty_received: index >= 803 && index < 810 ? 2 : 1,
+    items: { material_code: `M-${index}`, description: null },
+    company_challans: {
+      delivery_number: index >= 803 ? 'latest-delivery' : 'older-delivery',
+      delivery_date: null,
+      supplier_name: 'fixture-supplier',
+      terminal_destination_name: index >= 803 ? 'fixture-terminal-warehouse' : 'fixture-terminal-other',
+    },
+  }))
+  const movements = []
+  const move = (line, qty, source, destination, sourceKind, destKind) => {
+    movements.push({
+      id: `movement-${String(movements.length).padStart(5, '0')}`,
+      challan_line_id: line.id,
+      qty,
+      docs: {
+        source_location_id: source, dest_location_id: destination,
+        source: { kind: sourceKind }, destination: { kind: destKind },
+      },
+    })
+  }
+  // Reproduce the live case: 803 older lines, 318 repeat receipts, then 61 new lines.
+  for (const line of details.slice(0, 803)) move(line, line.qty_received, 'company', warehouseId, 'company', 'warehouse')
+  for (const line of details.slice(0, 318)) move(line, 1, 'hospital', warehouseId, 'hospital', 'warehouse')
+  for (const line of details.slice(803)) move(line, line.qty_received, 'company', warehouseId, 'company', 'warehouse')
+  for (const line of details.slice(0, 318)) move(line, 1, warehouseId, 'hospital', 'warehouse', 'hospital')
+  // A genuine return and a fractional issue must retain their existing accounting.
+  move(details[0], 1, warehouseId, 'company', 'warehouse', 'company')
+  move(details[1], 0.5, warehouseId, 'hospital', 'warehouse', 'hospital')
+  const calls = []
+  const config = {
+    locations: { warehouseName: 'fixture-warehouse-name' },
+    inventoryQueries: { pageSize, idBatchSize: 100 },
+  }
+  const client = { from(table) {
+    let ids
+    let idColumn
+    let from = 0
+    let to = serverCap - 1
+    const filters = []
+    const builder = {
+      select() { return this },
+      eq(key, value) { filters.push([key, value]); return this },
+      in(key, values) { idColumn = key; ids = values; return this },
+      order() { return this },
+      range(start, end) { from = start; to = end; return this },
+      single() { return Promise.resolve({ data: { id: warehouseId }, error: null }) },
+      then(resolve, reject) {
+        const call = { table, ids, from, to, filters }
+        calls.push(call)
+        const injected = fail?.(call)
+        if (injected || ids?.length > config.inventoryQueries.idBatchSize) {
+          return Promise.resolve({ data: null, error: { message: injected || 'Fixture URL limit exceeded' }, count: null }).then(resolve, reject)
+        }
+        let rows = table === 'doc_lines' ? movements : details
+        if (ids) rows = rows.filter((row) => ids.includes(row[idColumn]))
+        for (const [key, value] of filters) {
+          rows = rows.filter((row) => key.split('.').reduce((entry, part) => entry?.[part], row) === value)
+        }
+        rows = [...rows].sort((a, b) => a.id.localeCompare(b.id))
+        return Promise.resolve({ data: rows.slice(from, Math.min(to + 1, from + serverCap)), error: null, count: rows.length }).then(resolve, reject)
+      },
+    }
+    return builder
+  } }
+  const configImport = { getAppConfig: () => config }
+  const read = loadTypeScript('src/lib/supabase/read.ts', { '../config': configImport })
+  const availability = loadTypeScript('src/lib/availability.ts', {
+    './supabase/server': { createServerSupabaseAdmin: async () => client },
+    './supabase/read': read,
+  })
+  const inventory = loadTypeScript('src/app/inventory/actions.ts', {
+    '@/lib/supabase/server': { createServerSupabaseAdmin: async () => client },
+    '@/lib/supabase/read': read,
+    '@/lib/config': configImport,
+    '@/lib/availability': availability,
+    '@/lib/auth': { requireAllowedUser: async () => {} },
+  })
+  return { ...availability, ...inventory, calls, warehouseId, details, movements, read }
+}
+
+test('selector includes the 61 new lines after 1,000 receipt rows and keeps ID requests bounded', async () => {
+  const fixture = stockFixture()
+  const rows = await fixture.getAvailableInventory(fixture.warehouseId)
+  const latest = rows.filter((row) => row.delivery_number === 'latest-delivery')
+  assert.equal(latest.length, 61)
+  assert.equal(latest.reduce((sum, row) => sum + row.available_qty, 0), 68)
+  assert.ok(latest.every((row) => row.terminal_destination_name === 'fixture-terminal-warehouse'))
+  assert.equal(latest.filter((row) => row.terminal_destination_name === 'fixture-terminal-other').length, 0)
+  assert.ok(fixture.calls.some((call) => call.from >= 1000))
+  assert.ok(fixture.calls.filter((call) => call.ids).every((call) => call.ids.length <= 100))
+})
+
+test('server-capped pages are followed even when smaller than the configured page size', async () => {
+  const fixture = stockFixture({ pageSize: 2000, serverCap: 40 })
+  const rows = await fixture.getAvailableInventory(fixture.warehouseId)
+  assert.equal(rows.filter((row) => row.delivery_number === 'latest-delivery').length, 61)
+  assert.equal(new Set(rows.map((row) => row.challan_line_id)).size, rows.length)
+})
+
+test('inventory reports the newly received 68 units at the warehouse rather than out', async () => {
+  const fixture = stockFixture()
+  const rows = await fixture.getInventory()
+  const latest = rows.filter((row) => row.delivery_number === 'latest-delivery')
+  assert.equal(latest.reduce((sum, row) => sum + row.qty_at_warehouse, 0), 68)
+  assert.equal(latest.reduce((sum, row) => sum + row.qty_out, 0), 0)
+  assert.equal(latest.reduce((sum, row) => sum + row.qty_returned, 0), 0)
+  assert.equal(rows.find((row) => row.challan_line_id === fixture.details[0].id).qty_returned, 1)
+  assert.equal(rows.find((row) => row.challan_line_id === fixture.details[1].id).qty_out, 0.5)
+})
+
+test('failed later receipt pages reject the selector instead of returning partial stock', async () => {
+  const fixture = stockFixture({ fail: ({ table, from }) => table === 'doc_lines' && from >= 1000 ? 'Private database failure' : null })
+  await assert.rejects(() => fixture.getAvailableInventory(fixture.warehouseId), /Unable to load stock receipts/)
+})
+
+test('failed movement reads cannot become zero available quantity', async () => {
+  const fixture = stockFixture({ fail: ({ filters }) => filters.some(([key]) => key === 'docs.source_location_id') ? 'Private issue query error' : null })
+  await assert.rejects(() => fixture.getBatchAvailableAtLocation([fixture.details[0].id], fixture.warehouseId), /Unable to load stock issues/)
+})
+
+test('failed item details reject the selector rather than hiding the affected items', async () => {
+  const fixture = stockFixture({ fail: ({ table }) => table === 'company_challan_lines' ? 'Private detail error' : null })
+  await assert.rejects(() => fixture.getAvailableInventory(fixture.warehouseId), /Unable to load item details/)
+})
+
+test('failed return history cannot fabricate inventory out and returned quantities', async () => {
+  const fixture = stockFixture({ fail: ({ table, filters }) => table === 'doc_lines' && filters.length === 0 ? 'Private returns error' : null })
+  await assert.rejects(() => fixture.getInventory(), /Unable to load return movements/)
+})
+
+test('availability deduplicates requested IDs and does not query for an empty selection', async () => {
+  const fixture = stockFixture()
+  assert.equal((await fixture.getBatchAvailableAtLocation([], fixture.warehouseId)).size, 0)
+  assert.equal(fixture.calls.length, 0)
+  const id = fixture.details[1].id
+  const result = await fixture.getBatchAvailableAtLocation([id, id], fixture.warehouseId)
+  assert.equal(result.size, 1)
+  assert.equal(result.get(id), 0.5)
+})

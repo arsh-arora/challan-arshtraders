@@ -2,7 +2,7 @@
 
 import { useState, useEffect } from 'react'
 import { getAvailableItems } from '@/app/document/actions'
-import { AvailableItem } from '@/lib/availability'
+import type { AvailableItem } from '@/lib/availability'
 
 interface DestinationInfo {
   id: string
@@ -38,6 +38,8 @@ export default function AddLinesModal({
   const [loading, setLoading] = useState(true)
   const [selectedLines, setSelectedLines] = useState<SelectedLine[]>([])
   const [filter, setFilter] = useState('')
+  const [loadError, setLoadError] = useState<string | null>(null)
+  const [loadAttempt, setLoadAttempt] = useState(0)
 
   // Check if this is a return to company - if so, filter by terminal destination
   const isReturnToCompany = destinationInfo?.kind === 'company'
@@ -46,20 +48,26 @@ export default function AddLinesModal({
     : null
 
   useEffect(() => {
-    loadAvailableItems()
-  }, [sourceLocationId])
-
-  const loadAvailableItems = async () => {
+    let cancelled = false
     setLoading(true)
-    try {
-      const items = await getAvailableItems(sourceLocationId)
-      setAvailableItems(items)
-    } catch (error) {
-      console.error('Failed to load available items:', error)
-    } finally {
-      setLoading(false)
+    setLoadError(null)
+    setAvailableItems([])
+    setSelectedLines([])
+
+    async function load() {
+      try {
+        const items = await getAvailableItems(sourceLocationId)
+        if (!cancelled) setAvailableItems(items)
+      } catch (error) {
+        console.error('Failed to load available items:', error)
+        if (!cancelled) setLoadError('Unable to load available stock. Please try again.')
+      } finally {
+        if (!cancelled) setLoading(false)
+      }
     }
-  }
+    void load()
+    return () => { cancelled = true }
+  }, [sourceLocationId, loadAttempt])
 
   const handleQtyChange = (item: AvailableItem, qty: number) => {
     const existing = selectedLines.find((l) => l.challan_line_id === item.challan_line_id)
@@ -208,6 +216,16 @@ export default function AddLinesModal({
         <div className="flex-1 overflow-y-auto p-6">
           {loading ? (
             <p className="text-center text-gray-500 py-8">Loading available items...</p>
+          ) : loadError ? (
+            <div role="alert" className="text-center py-8">
+              <p className="text-red-700 mb-3">{loadError}</p>
+              <button
+                onClick={() => setLoadAttempt((attempt) => attempt + 1)}
+                className="px-4 py-2 border rounded-md"
+              >
+                Retry
+              </button>
+            </div>
           ) : availableItems.length === 0 ? (
             <p className="text-center text-gray-500 py-8">
               No items available at this location
@@ -357,7 +375,7 @@ export default function AddLinesModal({
               </button>
               <button
                 onClick={handleAdd}
-                disabled={selectedLines.length === 0}
+                disabled={loading || Boolean(loadError) || selectedLines.length === 0}
                 className="px-4 py-2 bg-blue-600 text-white rounded-md hover:bg-blue-700 disabled:opacity-50 disabled:cursor-not-allowed"
               >
                 Add Selected Lines
